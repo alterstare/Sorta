@@ -1,0 +1,397 @@
+/* Design tokens shared with Halftone (same names/values) so the screens fit
+   when embedded there. Light by default; :root[data-theme='dark'] flips. */
+:root {
+  --bg: #f4f5f8;
+  --bg-1: #ffffff;
+  --bg-2: #f0f1f5;
+  --bg-3: #e7e9f0;
+  --line: #dedee5;
+  --text: #101114;
+  --text-dim: #686b82;
+  --text-hover: #000000;
+  --muted: #9497a9;
+  --accent: #7132f5;
+  --accent-2: #5741d8;
+  --accent-soft: rgba(133, 91, 251, 0.16);
+  --danger: #e5484d;
+  --press-filter: brightness(0.9);
+  --shadow-subtle: rgba(0, 0, 0, 0.03) 0px 4px 24px;
+  --shadow-micro: rgba(16, 24, 40, 0.04) 0px 1px 4px;
+  --r3: 8px;
+  --r4: 12px;
+  --r6: 16px;
+}
+:root[data-theme='dark'] {
+  --bg: #0b0d13;
+  --bg-1: #14161d;
+  --bg-2: #1b1e27;
+  --bg-3: #262a35;
+  --line: #2b3040;
+  --text: #eceef4;
+  --text-dim: #9aa0b2;
+  --text-hover: #ffffff;
+  --muted: #6f7484;
+  --accent: #8b5cf6;
+  --accent-2: #7132f5;
+  --accent-soft: rgba(133, 91, 251, 0.22);
+  --danger: #ff5d6c;
+  --press-filter: brightness(1.18);
+  --shadow-subtle: rgba(0, 0, 0, 0.45) 0px 4px 24px;
+  --shadow-micro: rgba(0, 0, 0, 0.35) 0px 1px 4px;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', 'Helvetica Neue', Helvetica, Arial, 'Malgun Gothic', sans-serif;
+  font-size: 14px;
+  user-select: none;
+}
+h1,
+h2 {
+  letter-spacing: -0.5px;
+}
+h1 {
+  letter-spacing: -1px;
+  margin: 0 0 16px;
+}
+h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.selectable {
+  user-select: text;
+}
+.hint {
+  color: var(--text-dim);
+}
+
+.micon {
+  width: 1.15em;
+  height: 1.15em;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r4);
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out, color 0.12s ease-out;
+}
+.btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-hover);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+.btn.primary:hover {
+  background: var(--accent-2);
+}
+.mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r4);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease-out, border-color 0.12s ease-out, color 0.12s ease-out;
+}
+.mini.on {
+  background: var(--accent-2);
+  border-color: transparent;
+  color: #fff;
+}
+button:active {
+  filter: var(--press-filter);
+}
+
+/* Flat button group (default look, as in Halftone): no fill/outline, short
+   dividers between, the button shape appears on hover. */
+.flat-group {
+  display: inline-flex;
+  align-items: center;
+}
+.flat-group > * + * {
+  position: relative;
+  margin-left: 11px;
+}
+.flat-group > * + *::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  margin-top: -7px;
+  background: var(--line);
+  pointer-events: none;
+}
+.flat-group .mini:not(.on) {
+  background: transparent;
+  border-color: transparent;
+}
+.flat-group .mini:not(.on):hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-hover);
+}
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 20px;
+  cursor: pointer;
+}
+.icon-btn:hover,
+.icon-btn.on {
+  background: var(--accent-soft);
+  color: var(--text-hover);
+}
+
+/* ---------- layout ---------- */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 52px;
+  padding: 0 12px 0 18px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.5px;
+  color: var(--accent);
+}
+.spacer {
+  flex: 1;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.page {
+  height: 100%;
+  overflow: auto;
+  padding: 28px 32px;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+/* ---------- library ---------- */
+.library {
+  display: flex;
+  height: 100%;
+}
+.tree {
+  width: 260px;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--line);
+  background: var(--bg-1);
+  overflow: auto;
+  padding: 12px;
+}
+.tree-head {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.tree-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+.grid-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+/* Groups in a toolbar are split by the same short divider as their items. */
+.toolbar > * + * {
+  position: relative;
+  margin-left: 17px;
+}
+.toolbar > * + *::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: 50%;
+  width: 1px;
+  height: 16px;
+  margin-top: -8px;
+  background: var(--line);
+  pointer-events: none;
+}
+.tb-label {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.grid {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.grid.size-s {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+.grid.size-m {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+.grid.size-l {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 15vh;
+  color: var(--text-dim);
+}
+.empty > .micon {
+  width: 44px;
+  height: 44px;
+  color: var(--muted);
+}
+
+/* ---------- settings ---------- */
+.card {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r6);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+.row-text {
+  flex: 1;
+  min-width: 0;
+}
+.row-title {
+  font-weight: 600;
+}
+.row-desc {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 2px;
+  word-break: break-all;
+}
+.value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+.version {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 0 24px;
+}
+
+/* ---------- status bar ---------- */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 30px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+  font-size: 12px;
+}
+.status-label.idle {
+  color: var(--muted);
+}
+.bar {
+  width: 220px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+.bar.indeterminate .bar-fill {
+  width: 30%;
+  animation: indet 1.2s ease-in-out infinite;
+}
+@keyframes indet {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.status-count,
+.status-more {
+  color: var(--text-dim);
+}
