@@ -37,7 +37,14 @@ const api: Api = {
   searchCharacters: (q) => ipcRenderer.invoke(IPC.searchCharacters, q),
   seriesNames: () => ipcRenderer.invoke(IPC.seriesNames),
   undo: () => ipcRenderer.invoke(IPC.undo),
-  onToast: (cb) => on<JobSummary>(IPC.toast, cb)
+  onToast: (cb) => on<JobSummary>(IPC.toast, cb),
+  learnRefresh: () => ipcRenderer.invoke(IPC.learnRefresh),
+  learnPlan: (t) => ipcRenderer.invoke(IPC.learnPlan, t),
+  learn: (tags) => ipcRenderer.invoke(IPC.learn, tags),
+  booruTags: (q) => ipcRenderer.invoke(IPC.booruTags, q),
+  learned: () => ipcRenderer.invoke(IPC.learned),
+  forgetLearned: (id) => ipcRenderer.invoke(IPC.forgetLearned, id),
+  games: () => ipcRenderer.invoke(IPC.games)
 }
 
 contextBridge.exposeInMainWorld('api', api)

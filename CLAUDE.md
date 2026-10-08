@@ -44,6 +44,8 @@ Halftone과 같은 스택을 쓴다 (코드 공유를 위해).
 - **보조 태거 (선택 설치, 캐릭터만):** 기본 태거가 확정 못 한 이미지에만 사용. 모드: 사용 안 함 / PixAI / PixAI + Camie (Camie 단독 없음).
   - `deepghs/pixai-tagger-v0.9-onnx` (Apache-2.0, 캐릭터 3,720명). 단독 ≥ `assistAccept`(0.9)면 확정. DirectML에서는 graph optimization `basic` 필요.
   - `Camais03/camie-tagger-v2` (GPL-3.0, 캐릭터 26,968명, 사용자가 직접 받음). 자신 있는 오인식이 있어 단독 확정 금지, 다른 모델과 일치(둘 다 ≥ `agreeMin`)할 때만 확정. Camie만 본 캐릭터는 ≥ `camieSoloMin`(0.8)일 때만 검토, 확정된 캐릭터 옆 추가 후보로는 안 올림.
+- **캐릭터 학습 (Phase 3):** `deepghs/ccip_onnx` (ccip-caformer-24-randaug-pruned, OpenRAIL) 임베딩 + `deepghs/anime_person_detection` (v1.3_s, MIT) 인물 검출. CCIP 차이 = (1−cos)/2, 같은 캐릭터 기준 0.1785(cos ≈ 0.643). 참고 그림: 사용자 확정 그림(자동 반영·되돌리기 연동) + Danbooru 그림(혼자, rating:g,s; 특징만 저장). 참고 5장 미만 캐릭터는 단독 자동 확정 금지.
+  - Danbooru는 국내 SNI 차단 → green-tunnel 내장(Halftone과 동일: TLS 레코드 분할 + DoH 1.1.1.1, 학습 요청에만, OS 프록시 미변경). 접속 불가 시 Safebooru(rating:g만)로 대체. 요청 1회/초, 429·503은 대기 후 재시도. loli/shota 검열 태그는 비로그인 비공개이나 g/s 참고 그림에 영향 미미(1% 미만).
 - **캐릭터 → 작품 대응표:** PixAI 태그 목록(`selected_tags.csv`의 ips 열, 약 600KB)을 기본 태거와 함께 받아 사용. 없으면 태그의 `(작품)` 접미사, 그것도 없으면 "작품 미상".
 - **얼굴·인물 검출:** deepghs 애니 얼굴/인물 검출 ONNX (YOLO 계열)
 - **캐릭터 유사도 임베딩:** deepghs CCIP ONNX

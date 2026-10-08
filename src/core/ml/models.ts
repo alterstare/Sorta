@@ -68,11 +68,32 @@ export const CAMIE_SPEC: ModelSpec = {
   ]
 }
 
+// Character learning: CCIP similarity embeddings + anime person detection.
+export const CCIP_SPEC: ModelSpec = {
+  id: 'ccip',
+  label: '캐릭터 학습 모델 (CCIP + 인물 검출)',
+  license: 'OpenRAIL · MIT',
+  note: '모델에 없는 캐릭터를 참고 그림으로 학습해 찾습니다.',
+  files: [
+    {
+      file: 'ccip-feat.onnx',
+      url: `${HF}/deepghs/ccip_onnx/resolve/main/ccip-caformer-24-randaug-pruned/model_feat.onnx`,
+      bytes: 150_248_245
+    },
+    {
+      file: 'person-detect.onnx',
+      url: `${HF}/deepghs/anime_person_detection/resolve/main/person_detect_v1.3_s/model.onnx`,
+      bytes: 44_583_231
+    }
+  ]
+}
+
 export const MODEL_SPECS: Record<ModelId, ModelSpec> = {
   wd: TAGGER_SPEC,
   series: SERIES_MAP_SPEC,
   pixai: PIXAI_SPEC,
-  camie: CAMIE_SPEC
+  camie: CAMIE_SPEC,
+  ccip: CCIP_SPEC
 }
 
 export async function modelStatus(dir: string, spec: ModelSpec): Promise<ModelInfo> {

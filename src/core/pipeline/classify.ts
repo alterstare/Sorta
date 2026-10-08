@@ -27,6 +27,7 @@ export interface StoredTags {
   characters: CharScore[] // WD
   pixai?: CharScore[]
   camie?: CharScore[]
+  knn?: CharScore[] // learned characters (tag, or "#<character id>" for tagless ones)
 }
 
 export interface DecideOptions {
@@ -111,10 +112,20 @@ function ensureCharacterRow(db: Db, tag: string, map?: Map<string, string>): num
   return Number(r.lastInsertRowid)
 }
 
+// A decision key → character id: a danbooru tag, or "#<id>" for characters
+// without one (user-created, matched by learned references).
+export function characterFor(db: Db, key: string, map?: Map<string, string>): number {
+  return key.startsWith('#') ? Number(key.slice(1)) : ensureCharacter(db, key, map)
+}
+
 // Assist results only count for the enabled mode.
-function scoresFor(st: StoredTags, mode: AssistMode): { wd: CharScore[]; pixai?: CharScore[]; camie?: CharScore[] } {
+function scoresFor(
+  st: StoredTags,
+  mode: AssistMode
+): { wd: CharScore[]; pixai?: CharScore[]; camie?: CharScore[]; knn?: CharScore[] } {
   return {
     wd: st.characters,
+    knn: st.knn,
     pixai: mode !== 'none' ? st.pixai : undefined,
     camie: mode === 'pixai+camie' ? st.camie : undefined
   }
@@ -147,10 +158,10 @@ export function applyTagResult(db: Db, imageId: number, st: StoredTags, o: Decid
          VALUES (?, ?, ?, 'auto', ?, ?)`
       )
       for (const row of rows) {
-        const cands = row.candidates.map((c) => ({ characterId: ensureCharacter(db, c.tag, o.seriesMap), score: c.score }))
+        const cands = row.candidates.map((c) => ({ characterId: characterFor(db, c.tag, o.seriesMap), score: c.score }))
         ins.run(
           imageId,
-          row.tag ? ensureCharacter(db, row.tag, o.seriesMap) : null,
+          row.tag ? characterFor(db, row.tag, o.seriesMap) : null,
           row.status,
           row.confidence,
           cands.length ? JSON.stringify(cands) : null

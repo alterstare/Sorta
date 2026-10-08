@@ -1411,3 +1411,45 @@ kbd {
   border-color: var(--accent);
   background: radial-gradient(circle, var(--accent) 0 3px, transparent 4px);
 }
+
+/* ---------- learn ---------- */
+.learn-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.learn-row .tag-input {
+  flex: 1;
+}
+.learn-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--r4);
+  background: var(--bg-2);
+}
+.learn-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.learn-stats b {
+  color: var(--accent);
+}
+.learn-plan .btn.primary {
+  align-self: flex-start;
+}
+.learn-search {
+  margin-top: 10px;
+}
+.warn-card {
+  border-color: #e08a1e;
+}
+.row > .stepper + .stepper {
+  margin-left: -6px;
+}

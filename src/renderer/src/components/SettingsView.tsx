@@ -18,6 +18,9 @@ const THRESHOLDS: [keyof Thresholds, string, string, number, number, number][] =
   ['assistAccept', 'PixAI 단독 확정 점수', '기본 모델이 모르는 캐릭터를 PixAI가 이 값 이상으로 보면 확정합니다.', 0.05, 0.5, 1],
   ['agreeMin', '두 모델 일치 점수', '두 모델이 같은 캐릭터를 둘 다 이 값 이상으로 보면 확정합니다.', 0.05, 0.1, 1],
   ['camieSoloMin', 'Camie 단독 후보 점수', 'Camie만 본 캐릭터는 이 값 이상일 때만 검토에 올립니다 (확정은 하지 않음).', 0.05, 0.25, 1],
+  ['knnCandidate', '학습 캐릭터 후보 유사도', '학습한 캐릭터와 이 값 이상 닮으면 후보로 올립니다 (같은 캐릭터 기준 약 0.64).', 0.01, 0.3, 1],
+  ['knnAccept', '학습 캐릭터 확정 유사도', '학습한 캐릭터와 이 값 이상 닮고 2등과 충분히 차이 나면 확정합니다.', 0.01, 0.5, 1],
+  ['knnMargin', '학습 캐릭터 1·2등 차이', '확정하려면 가장 닮은 캐릭터가 두 번째보다 이만큼 더 닮아야 합니다.', 0.01, 0, 0.5],
   ['groupThreshold', '단체 폴더 인원', '같은 게임에서 이 인원 이상이면 단체 폴더로 (정리 단계에서 사용).', 1, 2, 20]
 ]
 const ASSIST: [AssistMode, string, ModelId[]][] = [
@@ -148,7 +151,7 @@ export default function SettingsView(): JSX.Element {
 
       <section className="card">
         <h2>모델</h2>
-        {(['wd', 'pixai', 'camie'] as const).map((id) => {
+        {(['wd', 'pixai', 'camie', 'ccip'] as const).map((id) => {
           const m = models.find((x) => x.id === id)
           if (!m) return null
           return (
@@ -207,6 +210,56 @@ export default function SettingsView(): JSX.Element {
               </button>
             ))}
           </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">외부 조회 허용</div>
+            <div className="row-desc">캐릭터 학습 때 캐릭터 이름으로 Safebooru에서 참고 그림을 받습니다. 내 그림은 밖으로 보내지 않습니다.</div>
+          </div>
+          <div className="flat-group">
+            {[true, false].map((v) => (
+              <button key={String(v)} className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`} onClick={() => void saveSettings({ allowWebLookup: v })}>
+                {v ? '허용' : '안 함'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">학습 그림 출처</div>
+            <div className="row-desc">
+              Danbooru는 자료가 가장 많고 민감 등급(수영복 등)까지 쓸 수 있습니다. 통신사 차단은 내장된 우회(Halftone과 같은 방식)로
+              접속하며, 접속이 안 되면 자동으로 Safebooru(전체연령만)를 씁니다.
+            </div>
+          </div>
+          <div className="flat-group">
+            {(['danbooru', 'safebooru'] as const).map((v) => (
+              <button key={v} className={`mini ${settings.booruSource === v ? 'on' : ''}`} onClick={() => void saveSettings({ booruSource: v })}>
+                {v === 'danbooru' ? 'Danbooru' : 'Safebooru'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">민감 등급 그림도 학습에 사용</div>
+            <div className="row-desc">수영복·바니 같은 복장은 대부분 민감 등급입니다. 참고 그림은 특징만 뽑고 저장하지 않습니다. (Danbooru 전용)</div>
+          </div>
+          <div className="flat-group">
+            {[true, false].map((v) => (
+              <button key={String(v)} className={`mini ${settings.learnSensitive === v ? 'on' : ''}`} onClick={() => void saveSettings({ learnSensitive: v })}>
+                {v ? '사용' : '안 함'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">학습 그림 수</div>
+            <div className="row-desc">캐릭터 하나를 학습할 때 받는 참고 그림 수 · 이보다 그림이 적은 캐릭터는 건너뜁니다(최소 그림 수).</div>
+          </div>
+          <Stepper value={settings.learnPerCharacter} min={5} max={100} step={5} onChange={(v) => void saveSettings({ learnPerCharacter: v })} />
+          <Stepper value={settings.learnMinPosts} min={1} max={200} step={5} onChange={(v) => void saveSettings({ learnMinPosts: v })} />
         </div>
         <div className="row">
           <div className="row-text">

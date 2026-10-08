@@ -4,6 +4,9 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import type {
   CharacterHit,
+  GameOption,
+  LearnedCharacter,
+  LearnPlanInfo,
   ImageItem,
   LibraryFilter,
   LibraryTree,
@@ -21,7 +24,7 @@ import { loadSettings, saveSettings } from './settings'
 import { JobQueue } from './queue'
 import { ActionLog } from './actionLog'
 import type { Tagger } from './ml/types'
-import { CAMIE_SPEC, MODEL_SPECS, PIXAI_SPEC, TAGGER_SPEC, deleteModel, downloadModel, modelStatus } from './ml/models'
+import { CAMIE_SPEC, CCIP_SPEC, MODEL_SPECS, PIXAI_SPEC, TAGGER_SPEC, deleteModel, downloadModel, modelStatus } from './ml/models'
 import type { AssistTagger } from './ml/assist'
 import { importImages } from './pipeline/importer'
 import type { ImportResult } from './pipeline/importer'
@@ -29,6 +32,11 @@ import { assistPending, classifyPending, redecideAll } from './pipeline/classify
 import type { ClassifyResult, DecideOptions } from './pipeline/classify'
 import { libraryTree, listImages } from './library'
 import * as review from './review'
+import * as booru from './pipeline/booru'
+import { stopTunnel } from './pipeline/booruNet'
+import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
+import type { LearnModels } from './pipeline/knn'
+import { displayName } from './pipeline/tags'
 
 // Bump when classification output changes meaning (forces a re-tag on start).
 // 2: tagger pre-processing fix (inputs were cropped/garbled).
@@ -51,6 +59,7 @@ export interface CoreOptions {
   // Override how the tagger is created (tests inject a mock).
   taggerFactory?: (modelsDir: string, useGpu: boolean) => Promise<Tagger>
   assistFactory?: () => Promise<AssistTagger[]>
+  learnFactory?: () => Promise<LearnModels>
   seriesMap?: Map<string, string>
 }
 
@@ -134,7 +143,7 @@ export class SortaCore {
   // ---- models ----
 
   async models(): Promise<ModelInfo[]> {
-    const ids: ModelId[] = ['wd', 'series', 'pixai', 'camie']
+    const ids: ModelId[] = ['wd', 'series', 'pixai', 'camie', 'ccip']
     return Promise.all(ids.map((id) => modelStatus(this.paths.modelsDir, MODEL_SPECS[id])))
   }
 
@@ -153,6 +162,7 @@ export class SortaCore {
   }
 
   private resetModels(): void {
+    this.learnModels = null
     this.tagger = null
     this.assist = null
     this.seriesMap = null
@@ -278,6 +288,113 @@ export class SortaCore {
     return { ok: true, label: a ? ((a.payload as { label?: string }).label ?? a.type) : null }
   }
 
+  // ---- character learning (Phase 3) ----
+
+  private learnModels: Promise<LearnModels> | null = null
+
+  private async getLearnModels(): Promise<LearnModels | null> {
+    if (this.opts.learnFactory) return this.opts.learnFactory()
+    if (!(await modelStatus(this.paths.modelsDir, CCIP_SPEC)).installed) return null
+    if (!this.learnModels) {
+      const gpu = this.settings().useGpu
+      this.learnModels = (async () => {
+        const { CcipEmbedder, PersonDetector } = await import('./ml/ccip')
+        const [feat, person] = CCIP_SPEC.files.map((f) => join(this.paths.modelsDir, f.file))
+        return { embedder: await CcipEmbedder.load(feat, gpu), detector: await PersonDetector.load(person, gpu) }
+      })()
+      this.learnModels.catch(() => (this.learnModels = null))
+    }
+    return this.learnModels
+  }
+
+  // Vectors for confirmed / open images → rebuild user references → compare
+  // open images with the learned characters.
+  runLearnRefresh(): { id: number; done: Promise<{ embedded: number; refs: number } | null> } {
+    return this.queue.add('학습한 캐릭터 비교', async (ctx) => {
+      const m = await this.getLearnModels()
+      if (!m) return null
+      const embedded = await embedImages(this.db, m, imagesToEmbed(this.db), ctx)
+      const refs = refreshUserRefs(this.db)
+      matchImages(this.db, await this.decideOptions(), ctx)
+      return { embedded, refs }
+    })
+  }
+
+  // Checks each candidate's usable picture count → runs as a job (progress).
+  learnPlan(seriesTag: string): { id: number; done: Promise<LearnPlanInfo> } {
+    return this.queue.add('학습할 캐릭터 확인', async (ctx) => {
+      const s = this.settings()
+      if (!s.allowWebLookup) throw new Error('설정에서 "외부 조회 허용"을 켜야 학습할 수 있습니다')
+      const known = await booru.knownVocab(this.paths.modelsDir, s.assistMode !== 'none', s.assistMode === 'pixai+camie')
+      const src = await this.booruSource()
+      const plan = await booru.planGame(src, this.db, seriesTag, known, s.ignoredCharacterTags, await this.getSeriesMap(), s.learnMinPosts, ctx)
+      return { ...plan, source: new URL(src.base).hostname }
+    })
+  }
+
+  runLearn(tags: string[]): { id: number; done: Promise<{ characters: number; refs: number; skipped: string[]; failed: string[] } | null> } {
+    return this.queue.add('캐릭터 학습', async (ctx) => {
+      const s = this.settings()
+      if (!s.allowWebLookup) throw new Error('설정에서 "외부 조회 허용"을 켜야 학습할 수 있습니다')
+      const m = await this.getLearnModels()
+      if (!m) return null
+      return booru.learnTags(await this.booruSource(), this.db, tags, m, await this.getSeriesMap(), s.learnPerCharacter, s.learnMinPosts, ctx)
+    })
+  }
+
+  async searchBooruTags(q: string): Promise<{ name: string; post_count: number }[]> {
+    if (!this.settings().allowWebLookup) return []
+    return booru.searchTags(await this.booruSource(), q)
+  }
+
+  // Danbooru (through the bypass tunnel) when chosen and reachable; otherwise
+  // Safebooru. Checked once per session.
+  private sourceCheck: Promise<booru.BooruSource> | null = null
+  private sourceKey = ''
+  private booruSource(): Promise<booru.BooruSource> {
+    const s = this.settings()
+    const key = `${s.booruSource}:${s.learnSensitive}`
+    if (!this.sourceCheck || this.sourceKey !== key) {
+      this.sourceKey = key
+      this.sourceCheck = (async () => {
+        if (s.booruSource === 'danbooru') {
+          const d = booru.DANBOORU(s.learnSensitive)
+          if (await booru.reachable(d)) return d
+        }
+        return booru.SAFEBOORU
+      })()
+    }
+    return this.sourceCheck
+  }
+
+  learned(): LearnedCharacter[] {
+    return this.db
+      .prepare(
+        `SELECT l.character_id AS characterId, c.name, s.name AS series, l.tag, l.refs, l.learned_at AS learnedAt,
+           (SELECT COUNT(*) FROM refs r WHERE r.character_id = l.character_id AND r.source = 'user') AS userRefs
+         FROM learned l JOIN characters c ON c.id = l.character_id JOIN series s ON s.id = c.series_id
+         ORDER BY s.name COLLATE NOCASE, c.name COLLATE NOCASE`
+      )
+      .all() as LearnedCharacter[]
+  }
+
+  forgetLearned(characterId: number): void {
+    this.db.prepare("DELETE FROM refs WHERE character_id = ? AND source = 'booru'").run(characterId)
+    this.db.prepare('DELETE FROM learned WHERE character_id = ?').run(characterId)
+  }
+
+  // Games to offer for "게임 학습": known series with their danbooru tag.
+  async games(): Promise<GameOption[]> {
+    const out = new Map<string, string>()
+    for (const r of this.db.prepare('SELECT name, danbooru_copyright_tag AS t FROM series WHERE danbooru_copyright_tag IS NOT NULL').all() as {
+      name: string
+      t: string
+    }[])
+      out.set(r.t, r.name)
+    for (const ip of new Set((await this.getSeriesMap()).values())) if (!out.has(ip)) out.set(ip, displayName(ip))
+    return [...out].map(([tag, name]) => ({ tag, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }
+
   // ---- library ----
 
   tree(): LibraryTree {
@@ -289,6 +406,7 @@ export class SortaCore {
   }
 
   close(): void {
+    void stopTunnel()
     this.db.close()
   }
 }

@@ -33,7 +33,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "green-tunnel": "^3.0.5",
     "onnxruntime-node": "^1.30.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "undici": "^6.29.0"
   }
 }

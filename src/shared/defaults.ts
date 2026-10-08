@@ -11,7 +11,10 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   groupThreshold: 4,
   assistAccept: 0.9,
   agreeMin: 0.5,
-  camieSoloMin: 0.8
+  camieSoloMin: 0.8,
+  knnCandidate: 0.64,
+  knnAccept: 0.75,
+  knnMargin: 0.1
 }
 
 // Character tags that are not "characters" for sorting (player avatar, mascots).

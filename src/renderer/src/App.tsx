@@ -6,6 +6,7 @@ import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon, Cl
 import Library from './components/Library'
 import Placeholder from './components/Placeholder'
 import Review from './components/Review'
+import LearnView from './components/LearnView'
 import SettingsView from './components/SettingsView'
 import ProgressBar from './components/ProgressBar'
 
@@ -13,7 +14,7 @@ const NAV: [View, string, typeof PhotoLibraryIcon][] = [
   ['library', '라이브러리', PhotoLibraryIcon],
   ['review', '검토', FactCheckIcon],
   ['unknown', '미확인', HelpIcon],
-  ['characters', '캐릭터', PersonIcon]
+  ['characters', '캐릭터 학습', PersonIcon]
 ]
 
 export default function App(): JSX.Element {
@@ -78,7 +79,7 @@ export default function App(): JSX.Element {
         {view === 'library' && <Library />}
         {view === 'review' && <Review />}
         {view === 'unknown' && <Placeholder title="미확인" phase={4} />}
-        {view === 'characters' && <Placeholder title="캐릭터 관리" phase={4} />}
+        {view === 'characters' && <LearnView />}
         {view === 'settings' && <SettingsView />}
       </main>
       <ProgressBar />

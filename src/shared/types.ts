@@ -5,7 +5,7 @@ export type MatchStatus = 'auto' | 'confirmed' | 'pending' | 'unknown'
 export type ImageKind = 'character' | 'other' | 'unknown'
 export type SafeMode = 'show' | 'blur' | 'hide'
 export type AssistMode = 'none' | 'pixai' | 'pixai+camie'
-export type ModelId = 'wd' | 'pixai' | 'camie' | 'series'
+export type ModelId = 'wd' | 'pixai' | 'camie' | 'series' | 'ccip'
 
 // Tunable numbers (CLAUDE.md §5, §6, §9: never hard-coded in the pipeline).
 export interface Thresholds {
@@ -19,6 +19,9 @@ export interface Thresholds {
   assistAccept: number // PixAI alone ≥ this → auto-confirm
   agreeMin: number // two models both ≥ this on the same character → auto-confirm
   camieSoloMin: number // a character only Camie names needs ≥ this to even reach review
+  knnCandidate: number // learned-character similarity ≥ this → candidate (CCIP same-character ≈ 0.64)
+  knnAccept: number // learned-character similarity ≥ this (and clear of the runner-up) → auto-confirm
+  knnMargin: number // best learned character must beat the second by this much to auto-confirm
 }
 
 export interface Settings {
@@ -34,6 +37,10 @@ export interface Settings {
   ignoredCharacterTags: string[]
   // Second opinion on images the main tagger couldn't settle (Camie never decides alone).
   assistMode: AssistMode
+  learnPerCharacter: number // Safebooru pictures fetched per learned character
+  learnMinPosts: number // skip characters with fewer pictures than this
+  booruSource: 'danbooru' | 'safebooru' // where reference pictures come from
+  learnSensitive: boolean // Danbooru: also use rating:sensitive pictures (swimsuits etc.)
   useGpu: boolean
   allowWebLookup: boolean // wiki / LLM lookups by character name (opt-in)
   autoUpdate: boolean
@@ -154,4 +161,30 @@ export interface ReviewItem {
 export interface UndoResult {
   ok: boolean
   label: string | null // what was undone; null = nothing left
+}
+
+// ---- character learning (Phase 3) ----
+
+export interface LearnedCharacter {
+  characterId: number
+  name: string
+  series: string
+  tag: string
+  refs: number // Safebooru reference pictures
+  userRefs: number // user-confirmed reference crops
+  learnedAt: number
+}
+
+export interface LearnPlanInfo {
+  seriesTag: string
+  source?: string // which site the counts come from
+  learn: { name: string; post_count: number }[]
+  known: number
+  learned: number
+  tooFew: number
+}
+
+export interface GameOption {
+  tag: string // danbooru copyright tag, e.g. blue_archive
+  name: string
 }

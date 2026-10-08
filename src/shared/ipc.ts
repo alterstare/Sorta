@@ -1,6 +1,9 @@
 import type {
   AppInfo,
   CharacterHit,
+  GameOption,
+  LearnedCharacter,
+  LearnPlanInfo,
   ImageItem,
   LibraryFilter,
   LibraryTree,
@@ -41,7 +44,14 @@ export const IPC = {
   searchCharacters: 'review:search',
   seriesNames: 'review:series',
   undo: 'review:undo',
-  toast: 'app:toast'
+  toast: 'app:toast',
+  learnRefresh: 'learn:refresh',
+  learnPlan: 'learn:plan',
+  learn: 'learn:run',
+  booruTags: 'learn:booruTags',
+  learned: 'learn:list',
+  forgetLearned: 'learn:forget',
+  games: 'learn:games'
 } as const
 
 // Finished pipeline job summary (shown as a toast / status line).
@@ -84,4 +94,12 @@ export interface Api {
   seriesNames: () => Promise<string[]>
   undo: () => Promise<UndoResult>
   onToast: (cb: (t: JobSummary) => void) => () => void
+  // character learning (Phase 3)
+  learnRefresh: () => Promise<JobSummary>
+  learnPlan: (seriesTag: string) => Promise<LearnPlanInfo>
+  learn: (tags: string[]) => Promise<JobSummary>
+  booruTags: (q: string) => Promise<{ name: string; post_count: number }[]>
+  learned: () => Promise<LearnedCharacter[]>
+  forgetLearned: (characterId: number) => Promise<void>
+  games: () => Promise<GameOption[]>
 }

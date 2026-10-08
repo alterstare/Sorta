@@ -115,6 +115,29 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE characters ADD COLUMN parent_id INTEGER REFERENCES characters(id) ON DELETE SET NULL;
   CREATE INDEX characters_parent ON characters(parent_id);
+  `,
+  // v5 — character learning: reference vectors (user-confirmed crops + Safebooru
+  // pictures) and the learned-character log; images track when they were embedded.
+  `
+  CREATE TABLE refs (
+    id INTEGER PRIMARY KEY,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    source TEXT NOT NULL CHECK (source IN ('user','booru')),
+    image_id INTEGER REFERENCES images(id) ON DELETE CASCADE,
+    post_id INTEGER,
+    vector BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX refs_character ON refs(character_id);
+  CREATE UNIQUE INDEX refs_user ON refs(image_id, character_id) WHERE source = 'user';
+  CREATE UNIQUE INDEX refs_booru ON refs(post_id, character_id) WHERE source = 'booru';
+  CREATE TABLE learned (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    refs INTEGER NOT NULL,
+    learned_at INTEGER NOT NULL
+  );
+  ALTER TABLE images ADD COLUMN embedded_at INTEGER;
   `
 ]
 
