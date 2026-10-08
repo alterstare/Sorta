@@ -32,6 +32,8 @@
     "zustand": "^5.0.15"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "^12.11.1",
+    "onnxruntime-node": "^1.30.0",
+    "sharp": "^0.34.5"
   }
 }

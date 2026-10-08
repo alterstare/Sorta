@@ -98,6 +98,18 @@ export const MIGRATIONS: string[] = [
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL
   );
+  `,
+  // v2 — classification bookkeeping
+  `
+  ALTER TABLE images ADD COLUMN classified_at INTEGER;          -- NULL = not run through the tagger yet
+  ALTER TABLE images ADD COLUMN rating_review INTEGER NOT NULL DEFAULT 0; -- borderline rating → review
+  ALTER TABLE images ADD COLUMN dup_of INTEGER REFERENCES images(id) ON DELETE SET NULL; -- near-duplicate (pHash) of
+  ALTER TABLE images ADD COLUMN error TEXT;                    -- last decode/classify error
+  CREATE INDEX images_classified ON images(classified_at);
+  `,
+  // v3 — keep the raw tagger scores so threshold changes re-decide instantly
+  `
+  ALTER TABLE images ADD COLUMN tag_json TEXT; -- {rating, characters:[{tag,score}]} from the tagger
   `
 ]
 

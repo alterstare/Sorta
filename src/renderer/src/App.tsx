@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import type { JSX } from 'react'
 import { useStore } from './store'
 import type { View } from './store'
-import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon } from './components/icons'
+import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon, CloseIcon } from './components/icons'
 import Library from './components/Library'
 import Placeholder from './components/Placeholder'
 import SettingsView from './components/SettingsView'
@@ -16,12 +16,20 @@ const NAV: [View, string, typeof PhotoLibraryIcon][] = [
 ]
 
 export default function App(): JSX.Element {
-  const { view, setView, settings, load, onProgress } = useStore()
+  const { view, setView, settings, load, onProgress, refreshLibrary, refreshModels, toast, dismissToast } = useStore()
 
   useEffect(() => {
     void load()
-    return window.api.onProgress(onProgress)
-  }, [load, onProgress])
+    const offProgress = window.api.onProgress(onProgress)
+    const offChanged = window.api.onLibraryChanged(() => {
+      void refreshLibrary()
+      void refreshModels()
+    })
+    return () => {
+      offProgress()
+      offChanged()
+    }
+  }, [load, onProgress, refreshLibrary, refreshModels])
 
   useEffect(() => {
     if (settings) document.documentElement.dataset.theme = settings.theme
@@ -40,11 +48,7 @@ export default function App(): JSX.Element {
           ))}
         </nav>
         <div className="spacer" />
-        <button
-          className={`icon-btn ${view === 'settings' ? 'on' : ''}`}
-          title="설정"
-          onClick={() => setView('settings')}
-        >
+        <button className={`icon-btn ${view === 'settings' ? 'on' : ''}`} title="설정" onClick={() => setView('settings')}>
           <SettingsIcon />
         </button>
       </header>
@@ -56,6 +60,14 @@ export default function App(): JSX.Element {
         {view === 'settings' && <SettingsView />}
       </main>
       <ProgressBar />
+      {toast && (
+        <div className={`toast ${toast.ok ? '' : 'err'}`}>
+          <span>{toast.message}</span>
+          <button className="toast-x" title="닫기" onClick={dismissToast}>
+            <CloseIcon />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

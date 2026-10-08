@@ -40,7 +40,11 @@ Halftone과 같은 스택을 쓴다 (코드 공유를 위해).
 | 패키징 | electron-builder (NSIS + zip / AppImage + tar.gz), GitHub Releases 자동 업데이트 | |
 
 ### 모델 후보 (구현 전 최신 버전·라이선스 확인 필수)
-- **태거 (등급 + 캐릭터 태그):** WD Tagger v3 계열 ONNX (예: `SmilingWolf/wd-swinv2-tagger-v3`, Apache-2.0)
+- **태거 (등급 + 캐릭터 태그, 기본):** `SmilingWolf/wd-swinv2-tagger-v3` (Apache-2.0, 캐릭터 2,751명). ViT-Large/EVA02 v3는 태그 목록이 같아 캐릭터가 늘지 않는다.
+- **보조 태거 (선택 설치, 캐릭터만):** 기본 태거가 확정 못 한 이미지에만 사용. 모드: 사용 안 함 / PixAI / PixAI + Camie (Camie 단독 없음).
+  - `deepghs/pixai-tagger-v0.9-onnx` (Apache-2.0, 캐릭터 3,720명). 단독 ≥ `assistAccept`(0.9)면 확정. DirectML에서는 graph optimization `basic` 필요.
+  - `Camais03/camie-tagger-v2` (GPL-3.0, 캐릭터 26,968명, 사용자가 직접 받음). 자신 있는 오인식이 있어 단독 확정 금지, 다른 모델과 일치(둘 다 ≥ `agreeMin`)할 때만 확정. Camie만 본 캐릭터는 ≥ `camieSoloMin`(0.8)일 때만 검토, 확정된 캐릭터 옆 추가 후보로는 안 올림.
+- **캐릭터 → 작품 대응표:** PixAI 태그 목록(`selected_tags.csv`의 ips 열, 약 600KB)을 기본 태거와 함께 받아 사용. 없으면 태그의 `(작품)` 접미사, 그것도 없으면 "작품 미상".
 - **얼굴·인물 검출:** deepghs 애니 얼굴/인물 검출 ONNX (YOLO 계열)
 - **캐릭터 유사도 임베딩:** deepghs CCIP ONNX
 - **대체 임베딩:** DINOv2 또는 CLIP
@@ -48,6 +52,8 @@ Halftone과 같은 스택을 쓴다 (코드 공유를 위해).
 모든 모델은 `src/core/ml/` 아래 인터페이스(`Tagger`, `Detector`, `Embedder`)로 감싸서 교체 가능하게 만든다.
 모델 파일은 저장소에 커밋하지 않고, 사용자가 설정의 **"모델 받기"**를 누르면 userData의 `models/`로 내려받는다(진행률 표시). 받기 전에는 분류 기능을 잠근다.
 태거는 학습 시점 이후에 나온 캐릭터를 모른다. 이런 캐릭터는 사용자가 몇 장 확정해야 임베딩으로 자동 인식된다.
+모델 원 점수(tag_json)는 이미지마다 저장해, 기준값·무시 목록·보조 모드가 바뀌면 모델을 다시 돌리지 않고 즉시 재판정한다.
+태그 점수는 캐릭터별 독립(sigmoid)이므로 1·2위 차이 규칙은 쓰지 않는다 (두 캐릭터가 둘 다 높으면 둘 다 있는 것).
 
 ---
 

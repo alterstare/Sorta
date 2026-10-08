@@ -8,7 +8,7 @@ export default defineConfig({
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/main/index.ts') },
         // Native addons load from node_modules at runtime, never bundled.
-        external: ['better-sqlite3']
+        external: ['better-sqlite3', 'onnxruntime-node', 'sharp']
       }
     }
   },

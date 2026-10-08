@@ -1,6 +1,7 @@
 // Settings live in the `settings` table, one row per top-level key. Missing
 // keys fall back to DEFAULT_SETTINGS, so new settings need no migration.
 import type { Settings } from '../shared/types'
+import { DEFAULT_IGNORED, DEFAULT_THRESHOLDS } from '../shared/defaults'
 import type { Db } from './db'
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -11,16 +12,9 @@ export const DEFAULT_SETTINGS: Settings = {
   splitByRating: false,
   safeR18: 'blur',
   safeSensitive: 'show',
-  thresholds: {
-    autoAccept: 0.85,
-    reviewMin: 0.5,
-    candidateMin: 0.25,
-    margin: 0.1,
-    r18Threshold: 0.5,
-    sensitiveThreshold: 0.5,
-    ratingMargin: 0.1,
-    groupThreshold: 4
-  },
+  thresholds: { ...DEFAULT_THRESHOLDS },
+  ignoredCharacterTags: [...DEFAULT_IGNORED],
+  assistMode: 'none',
   useGpu: true,
   allowWebLookup: false,
   autoUpdate: true,
