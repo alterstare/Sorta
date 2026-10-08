@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import type { ImageItem } from '../../../shared/types'
 import { CloseIcon, FolderOpenIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
+import EditBar from './EditBar'
 
 const STATUS: Record<string, string> = { auto: '자동', confirmed: '확정', pending: '검토', unknown: '미확인' }
 
@@ -16,6 +17,8 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
   useEffect(() => {
     if (index === null) return
     const onKey = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement
+      if (t.tagName === 'INPUT') return
       if (e.key === 'Escape') open(null)
       else if (e.key === 'ArrowLeft' && index > 0) open(index - 1)
       else if (e.key === 'ArrowRight' && index < items.length - 1) open(index + 1)
@@ -62,6 +65,7 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
           </button>
         </div>
       </div>
+      <EditBar img={img} />
       <img className="viewer-img" src={window.api.imageUrl(img.path)} onClick={(e) => e.stopPropagation()} draggable={false} />
       {index > 0 && (
         <button

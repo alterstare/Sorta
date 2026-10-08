@@ -2,7 +2,19 @@
 // Halftone and the tests all drive the same code.
 import { mkdirSync } from 'fs'
 import { join } from 'path'
-import type { ImageItem, LibraryFilter, LibraryTree, ModelId, ModelInfo, Settings } from '../shared/types'
+import type {
+  CharacterHit,
+  ImageItem,
+  LibraryFilter,
+  LibraryTree,
+  ModelId,
+  ModelInfo,
+  Rating,
+  ReviewItem,
+  ReviewKind,
+  Settings,
+  UndoResult
+} from '../shared/types'
 import { openDb, schemaVersion } from './db'
 import type { Db } from './db'
 import { loadSettings, saveSettings } from './settings'
@@ -16,6 +28,7 @@ import type { ImportResult } from './pipeline/importer'
 import { assistPending, classifyPending, redecideAll } from './pipeline/classify'
 import type { ClassifyResult, DecideOptions } from './pipeline/classify'
 import { libraryTree, listImages } from './library'
+import * as review from './review'
 
 // Bump when classification output changes meaning (forces a re-tag on start).
 // 2: tagger pre-processing fix (inputs were cropped/garbled).
@@ -23,7 +36,9 @@ import { libraryTree, listImages } from './library'
 // 4: per-tag decisions (no 1st/2nd margin), ignored tags, autoAccept 0.75.
 // 5: store raw tagger scores (tag_json) for instant re-decisions.
 // 6: game table + assist results stored with the scores.
-export const PIPELINE_REV = 6
+// 7: outfit versions merge with / nest under their base character.
+// 8/9: fix version links (a single "(game)" group is not a version).
+export const PIPELINE_REV = 9
 
 export interface CorePaths {
   dataDir: string
@@ -71,6 +86,7 @@ export class SortaCore {
     }
     this.db = openDb(this.paths.dbPath)
     this.log = new ActionLog(this.db)
+    review.registerReviewUndo(this.log, this.db)
     this.checkPipelineRev()
   }
 
@@ -221,6 +237,45 @@ export class SortaCore {
   // from stored scores.
   runRedecide(): { id: number; done: Promise<number> } {
     return this.queue.add('기준 다시 적용', async (ctx) => redecideAll(this.db, await this.decideOptions(), ctx))
+  }
+
+  // ---- review (user decisions; each is one undo step) ----
+
+  reviewQueue(kind: ReviewKind): ReviewItem[] {
+    return review.reviewQueue(this.db, kind, this.settings().thresholds.reviewMin)
+  }
+
+  confirmCharacters(imageIds: number[], characterIds: number[]): void {
+    review.confirmCharacters(this.db, this.log, imageIds, characterIds)
+  }
+
+  addCharacter(imageId: number, characterId: number): void {
+    review.addCharacter(this.db, this.log, imageId, characterId)
+  }
+
+  markOther(imageIds: number[]): void {
+    review.markOther(this.db, this.log, imageIds)
+  }
+
+  setRating(imageIds: number[], rating: Exclude<Rating, 'unknown'>): void {
+    review.setRating(this.db, this.log, imageIds, rating)
+  }
+
+  createCharacter(name: string, series: string): number {
+    return review.createCharacter(this.db, name, series)
+  }
+
+  searchCharacters(q: string): CharacterHit[] {
+    return review.searchCharacters(this.db, q)
+  }
+
+  seriesNames(): string[] {
+    return review.seriesNames(this.db)
+  }
+
+  async undo(): Promise<UndoResult> {
+    const a = await this.log.undo()
+    return { ok: true, label: a ? ((a.payload as { label?: string }).label ?? a.type) : null }
   }
 
   // ---- library ----

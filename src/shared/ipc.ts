@@ -1,4 +1,18 @@
-import type { AppInfo, ImageItem, LibraryFilter, LibraryTree, ModelId, ModelInfo, ProgressEvent, Settings } from './types'
+import type {
+  AppInfo,
+  CharacterHit,
+  ImageItem,
+  LibraryFilter,
+  LibraryTree,
+  ModelId,
+  ModelInfo,
+  ProgressEvent,
+  Rating,
+  ReviewItem,
+  ReviewKind,
+  Settings,
+  UndoResult
+} from './types'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -17,7 +31,17 @@ export const IPC = {
   tree: 'library:tree',
   images: 'library:images',
   libraryChanged: 'library:changed',
-  showInFolder: 'file:show'
+  showInFolder: 'file:show',
+  reviewQueue: 'review:queue',
+  confirmCharacters: 'review:confirm',
+  addCharacter: 'review:add',
+  markOther: 'review:other',
+  setRating: 'review:rating',
+  createCharacter: 'review:createCharacter',
+  searchCharacters: 'review:search',
+  seriesNames: 'review:series',
+  undo: 'review:undo',
+  toast: 'app:toast'
 } as const
 
 // Finished pipeline job summary (shown as a toast / status line).
@@ -49,4 +73,15 @@ export interface Api {
   onLibraryChanged: (cb: () => void) => () => void
   showInFolder: (path: string) => Promise<void>
   imageUrl: (path: string) => string
+  // review (Phase 2) — mutations are single undo steps
+  reviewQueue: (kind: ReviewKind) => Promise<ReviewItem[]>
+  confirmCharacters: (imageIds: number[], characterIds: number[]) => Promise<void>
+  addCharacter: (imageId: number, characterId: number) => Promise<void>
+  markOther: (imageIds: number[]) => Promise<void>
+  setRating: (imageIds: number[], rating: Exclude<Rating, 'unknown'>) => Promise<void>
+  createCharacter: (name: string, series: string) => Promise<number>
+  searchCharacters: (q: string) => Promise<CharacterHit[]>
+  seriesNames: () => Promise<string[]>
+  undo: () => Promise<UndoResult>
+  onToast: (cb: (t: JobSummary) => void) => () => void
 }

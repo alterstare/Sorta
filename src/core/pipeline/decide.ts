@@ -15,6 +15,7 @@
 // Camie names (no other model ≥ candidateMin) reaches review only at
 // ≥ camieSoloMin, and never as an extra next to already-confirmed characters.
 import type { MatchStatus, Thresholds } from '../../shared/types'
+import { variantBase } from './tags'
 
 export interface TagCandidate {
   tag: string
@@ -48,6 +49,24 @@ export function decideEnsemble(m: ModelScores, t: Thresholds, ignored: string[] 
   add(m.wd, 'wd')
   add(m.pixai, 'pixai')
   add(m.camie, 'camie')
+  // An outfit version and its base character are the same person: keep the
+  // version when it's about as likely as the base (more specific), else the base.
+  const bestOf = (s: { wd: number; pixai: number; camie: number }): number => Math.max(s.wd, s.pixai, s.camie)
+  for (const tag of [...per.keys()]) {
+    if (!per.has(tag)) continue // already merged away
+    // Only explicit versions (name_(version)_(game)) — a single group may be the game.
+    const base = variantBase(tag)
+    if (!base || !per.has(base)) continue
+    const v = per.get(tag)!
+    const b = per.get(base)!
+    if (bestOf(v) >= t.candidateMin && bestOf(v) >= bestOf(b) - 0.3) {
+      // The version inherits the base's evidence (same person).
+      v.wd = Math.max(v.wd, b.wd)
+      v.pixai = Math.max(v.pixai, b.pixai)
+      v.camie = Math.max(v.camie, b.camie)
+      per.delete(base)
+    } else per.delete(tag)
+  }
 
   const present: TagCandidate[] = []
   const maybe: TagCandidate[] = []

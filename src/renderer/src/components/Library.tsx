@@ -8,6 +8,7 @@ import { CloseIcon, FolderOpenIcon, GridViewIcon, SearchIcon, SettingsIcon } fro
 import Tree from './Tree'
 import ThumbGrid, { safeMode } from './ThumbGrid'
 import Viewer from './Viewer'
+import SelectionBar from './SelectionBar'
 
 const SIZES: [ThumbSize, string][] = [
   ['s', '작게'],
@@ -93,6 +94,7 @@ export default function Library(): JSX.Element {
           {safeGroup('R-18', 'safeR18')}
           {safeGroup('민감', 'safeSensitive')}
         </div>
+        <SelectionBar allIds={items.map((i) => i.id)} />
         {empty ? (
           <div className="grid">
             <div className="empty">

@@ -37,6 +37,9 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
   const size = useStore((s) => s.thumbSize)
   const settings = useStore((s) => s.settings)
   const openViewer = useStore((s) => s.openViewer)
+  const selected = useStore((s) => s.selected)
+  const setSelected = useStore((s) => s.setSelected)
+  const anchor = useRef<number | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ w: 800, h: 600, top: 0 })
 
@@ -71,9 +74,26 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
       cells.push(
         <div
           key={img.id}
-          className="cell"
+          className={`cell ${selected.has(img.id) ? 'sel' : ''}`}
           style={{ left: PAD + c * (cellW + GAP), top: PAD + r * rowH, width: cellW }}
-          onClick={() => openViewer(i)}
+          onClick={(e) => {
+            // Ctrl/⌘ toggles, Shift selects a range, a plain click opens the image.
+            if (e.ctrlKey || e.metaKey) {
+              const n = new Set(selected)
+              if (n.has(img.id)) n.delete(img.id)
+              else n.add(img.id)
+              anchor.current = i
+              setSelected(n)
+            } else if (e.shiftKey) {
+              const a = anchor.current ?? i
+              const n = new Set(selected)
+              for (let k = Math.min(a, i); k <= Math.max(a, i); k++) n.add(items[k].id)
+              setSelected(n)
+            } else if (selected.size) {
+              anchor.current = i
+              setSelected(new Set([img.id]))
+            } else openViewer(i)
+          }}
           title={img.path}
         >
           <div className="cell-img" style={{ height: cellW }}>

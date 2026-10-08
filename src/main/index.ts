@@ -7,7 +7,7 @@ import { SortaCore, CancelledError } from '../core'
 import { isInside } from '../core/pipeline/scan'
 import { IPC } from '../shared/ipc'
 import type { JobSummary } from '../shared/ipc'
-import type { LibraryFilter, ModelId, Settings } from '../shared/types'
+import type { LibraryFilter, ModelId, Rating, ReviewKind, Settings } from '../shared/types'
 
 let core: SortaCore
 let win: BrowserWindow | null = null
@@ -30,7 +30,7 @@ function handleImages(): void {
     try {
       const seg = new URL(req.url).pathname.replace(/^\//, '')
       const path = Buffer.from(seg, 'base64url').toString('utf-8')
-      const known = allowedRoots().some((r) => isInside(path, r)) || !!core.db.prepare('SELECT 1 FROM images WHERE path = ?').get(path)
+      const known = allowedRoots().some((r) => isInside(path, r)) || !!core.db.prepare('SELECT 1 FROM images WHERE path = ? OR thumbnail_path = ?').get(path, path)
       if (!known) return new Response('forbidden', { status: 403 })
       const res = await net.fetch(pathToFileURL(path).toString())
       const headers = new Headers(res.headers)
@@ -84,6 +84,12 @@ function classifyJob(): Promise<JobSummary> {
   )
 }
 
+// Re-decide from stored scores; a failure shows as a toast instead of vanishing.
+async function redecideJob(): Promise<void> {
+  const r = await summarize(core.runRedecide().done, () => '')
+  if (!r.ok) win?.webContents.send(IPC.toast, { ok: false, message: `기준 다시 적용 실패: ${r.message}` })
+}
+
 function assistJob(): Promise<JobSummary> {
   return summarize(core.runAssist().done, (n) => `보조 모델로 ${n}장 다시 확인`)
 }
@@ -91,8 +97,8 @@ function assistJob(): Promise<JobSummary> {
 // A model was installed / removed: the game table re-places characters, an
 // assist model can settle open images.
 function afterModelChange(id: ModelId): void {
-  if (id === 'wd') void core.downloadModel('series').done.then(() => core.runRedecide().done).catch(() => {}).finally(changed)
-  if (id === 'series' || id === 'pixai') void core.runRedecide().done.finally(changed)
+  if (id === 'wd') void core.downloadModel('series').done.then(() => redecideJob()).catch(() => {})
+  if (id === 'series' || id === 'pixai') void redecideJob()
   if ((id === 'pixai' || id === 'camie') && core.settings().assistMode !== 'none') void assistJob()
 }
 
@@ -109,7 +115,7 @@ function registerIpc(): void {
     nativeTheme.themeSource = s.theme
     // New thresholds / ignored tags apply to everything already classified
     // (from the stored scores — no model run).
-    if (patch.thresholds || patch.ignoredCharacterTags || patch.assistMode) void core.runRedecide().done.finally(changed)
+    if (patch.thresholds || patch.ignoredCharacterTags || patch.assistMode) void redecideJob()
     // Assist turned on → ask it about the images the main tagger left open.
     if (patch.assistMode && patch.assistMode !== 'none') void assistJob()
     return s
@@ -152,6 +158,27 @@ function registerIpc(): void {
   ipcMain.handle(IPC.tree, () => core.tree())
   ipcMain.handle(IPC.images, (_e, f: LibraryFilter) => core.images(f))
   ipcMain.handle(IPC.showInFolder, (_e, p: string) => shell.showItemInFolder(p))
+  // Review decisions: each refreshes the library views.
+  const mutate =
+    <A extends unknown[], R>(fn: (...a: A) => R) =>
+    (_e: unknown, ...a: A): R => {
+      const r = fn(...a)
+      changed()
+      return r
+    }
+  ipcMain.handle(IPC.reviewQueue, (_e, k: ReviewKind) => core.reviewQueue(k))
+  ipcMain.handle(IPC.confirmCharacters, mutate((i: number[], c: number[]) => core.confirmCharacters(i, c)))
+  ipcMain.handle(IPC.addCharacter, mutate((i: number, c: number) => core.addCharacter(i, c)))
+  ipcMain.handle(IPC.markOther, mutate((i: number[]) => core.markOther(i)))
+  ipcMain.handle(IPC.setRating, mutate((i: number[], r: Exclude<Rating, 'unknown'>) => core.setRating(i, r)))
+  ipcMain.handle(IPC.createCharacter, (_e, n: string, s: string) => core.createCharacter(n, s))
+  ipcMain.handle(IPC.searchCharacters, (_e, q: string) => core.searchCharacters(q))
+  ipcMain.handle(IPC.seriesNames, () => core.seriesNames())
+  ipcMain.handle(IPC.undo, async () => {
+    const r = await core.undo()
+    changed()
+    return r
+  })
   core.queue.onProgress((e) => win?.webContents.send(IPC.progress, e))
 }
 
@@ -175,10 +202,10 @@ else {
       // The small character → game table comes with the main tagger.
       if (has('wd') && !has('series')) {
         await summarize(core.downloadModel('series').done, () => '')
-        void core.runRedecide().done.finally(changed)
+        void redecideJob()
       }
       if (core.resetOnStart && has('wd')) void classifyJob()
-      else if (core.redecideOnStart) void core.runRedecide().done.finally(changed)
+      else if (core.redecideOnStart) void redecideJob()
     })
   })
   app.on('window-all-closed', () => {

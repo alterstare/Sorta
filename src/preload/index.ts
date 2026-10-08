@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { Api } from '../shared/ipc'
+import type { Api, JobSummary } from '../shared/ipc'
 import type { ProgressEvent } from '../shared/types'
 
 const on = <T>(ch: string, cb: (v: T) => void): (() => void) => {
@@ -27,7 +27,17 @@ const api: Api = {
   images: (f) => ipcRenderer.invoke(IPC.images, f),
   onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
   showInFolder: (p) => ipcRenderer.invoke(IPC.showInFolder, p),
-  imageUrl: (p) => 'sorta-img://f/' + Buffer.from(p, 'utf-8').toString('base64url')
+  imageUrl: (p) => 'sorta-img://f/' + Buffer.from(p, 'utf-8').toString('base64url'),
+  reviewQueue: (k) => ipcRenderer.invoke(IPC.reviewQueue, k),
+  confirmCharacters: (i, c) => ipcRenderer.invoke(IPC.confirmCharacters, i, c),
+  addCharacter: (i, c) => ipcRenderer.invoke(IPC.addCharacter, i, c),
+  markOther: (i) => ipcRenderer.invoke(IPC.markOther, i),
+  setRating: (i, r) => ipcRenderer.invoke(IPC.setRating, i, r),
+  createCharacter: (n, s) => ipcRenderer.invoke(IPC.createCharacter, n, s),
+  searchCharacters: (q) => ipcRenderer.invoke(IPC.searchCharacters, q),
+  seriesNames: () => ipcRenderer.invoke(IPC.seriesNames),
+  undo: () => ipcRenderer.invoke(IPC.undo),
+  onToast: (cb) => on<JobSummary>(IPC.toast, cb)
 }
 
 contextBridge.exposeInMainWorld('api', api)

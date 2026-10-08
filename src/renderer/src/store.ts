@@ -29,6 +29,10 @@ interface State {
   filter: LibraryFilter
   images: ImageItem[]
   viewerIndex: number | null // index into `images` of the opened image
+  libraryVersion: number // bumped on every library refresh (views re-query)
+  selected: Set<number> // multi-selected image ids in the grid
+  setSelected: (s: Set<number>) => void
+  undo: () => Promise<void>
   setView: (v: View) => void
   setThumbSize: (s: ThumbSize) => void
   load: () => Promise<void>
@@ -58,6 +62,13 @@ export const useStore = create<State>((set, get) => ({
   filter: { node: { type: 'all' }, rating: 'all', q: '' },
   images: [],
   viewerIndex: null,
+  libraryVersion: 0,
+  selected: new Set(),
+  setSelected: (selected) => set({ selected }),
+  undo: async () => {
+    const r = await window.api.undo()
+    get().showToast({ ok: true, message: r.label ? `되돌림: ${r.label}` : '되돌릴 작업이 없습니다.' })
+  },
   setView: (view) => set({ view }),
   setThumbSize: (thumbSize) => set({ thumbSize }),
   load: async () => {
@@ -82,10 +93,13 @@ export const useStore = create<State>((set, get) => ({
   refreshModels: async () => set({ models: await window.api.models() }),
   refreshLibrary: async () => {
     const [tree, images] = await Promise.all([window.api.tree(), window.api.images(get().filter)])
-    set({ tree, images })
+    // Keep only selections that are still listed.
+    const ids = new Set(images.map((i) => i.id))
+    const selected = new Set([...get().selected].filter((id) => ids.has(id)))
+    set({ tree, images, selected, libraryVersion: get().libraryVersion + 1 })
   },
   setNode: (node) => {
-    set({ filter: { ...get().filter, node }, viewerIndex: null })
+    set({ filter: { ...get().filter, node }, viewerIndex: null, selected: new Set() })
     void get().refreshLibrary()
   },
   setRating: (rating) => {

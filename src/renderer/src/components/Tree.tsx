@@ -49,7 +49,15 @@ export default function Tree(): JSX.Element {
               </button>
               {item({ type: 'series', id: s.id }, s.name, s.count, 'series')}
             </div>
-            {open && s.characters.map((ch) => <div key={ch.id}>{item({ type: 'character', id: ch.id }, ch.name, ch.count, 'char')}</div>)}
+            {open &&
+              s.characters.map((ch) => (
+                <div key={ch.id}>
+                  {item({ type: 'character', id: ch.id }, ch.name, ch.count, 'char')}
+                  {ch.children?.map((v) => (
+                    <div key={v.id}>{item({ type: 'character', id: v.id }, v.name, v.count, 'variant')}</div>
+                  ))}
+                </div>
+              ))}
           </div>
         )
       })}

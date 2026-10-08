@@ -110,6 +110,11 @@ export const MIGRATIONS: string[] = [
   // v3 — keep the raw tagger scores so threshold changes re-decide instantly
   `
   ALTER TABLE images ADD COLUMN tag_json TEXT; -- {rating, characters:[{tag,score}]} from the tagger
+  `,
+  // v4 — outfit/version characters under their base character (folders merge, the tree nests)
+  `
+  ALTER TABLE characters ADD COLUMN parent_id INTEGER REFERENCES characters(id) ON DELETE SET NULL;
+  CREATE INDEX characters_parent ON characters(parent_id);
   `
 ]
 

@@ -77,7 +77,8 @@ export interface LibraryFilter {
 export interface TreeCharacter {
   id: number
   name: string
-  count: number
+  count: number // base character: its images incl. outfit versions
+  children?: TreeCharacter[] // outfit / version characters (e.g. Ako (Dress))
 }
 export interface TreeSeries {
   id: number
@@ -102,7 +103,7 @@ export interface ImageItem {
   dupOf: number | null
   error: string | null
   // One per detected character: name (null = unknown) and status.
-  characters: { name: string | null; series: string | null; status: MatchStatus; confidence: number | null }[]
+  characters: { id: number | null; name: string | null; series: string | null; status: MatchStatus; confidence: number | null }[]
 }
 
 export interface ModelInfo {
@@ -113,4 +114,44 @@ export interface ModelInfo {
   installed: boolean
   bytes: number
   totalBytes: number
+}
+
+// ---- review (Phase 2) ----
+
+export type ReviewKind = 'character' | 'rating'
+
+export interface CharacterHit {
+  id: number
+  name: string
+  series: string
+  n: number // images sorted under it
+}
+
+export interface ReviewCandidate {
+  id: number
+  name: string
+  series: string
+  score: number
+  low: boolean // below reviewMin → "낮은 확신"
+  refs: string[] // thumbnails of images already sorted under it (max 4)
+  // Same character in another outfit as an already-confirmed one → the user
+  // chooses "replace" (it's that outfit) or "both" (two outfits in the picture).
+  relatedTo?: { id: number; name: string }
+}
+
+export interface ReviewItem {
+  id: number
+  path: string
+  thumb: string | null
+  width: number | null
+  height: number | null
+  rating: Rating
+  ratingScore: number | null
+  confirmed: { id: number; name: string; series: string }[] // already in the picture (auto/confirmed)
+  candidates: ReviewCandidate[]
+}
+
+export interface UndoResult {
+  ok: boolean
+  label: string | null // what was undone; null = nothing left
 }

@@ -5,6 +5,7 @@ import type { View } from './store'
 import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon, CloseIcon } from './components/icons'
 import Library from './components/Library'
 import Placeholder from './components/Placeholder'
+import Review from './components/Review'
 import SettingsView from './components/SettingsView'
 import ProgressBar from './components/ProgressBar'
 
@@ -21,15 +22,35 @@ export default function App(): JSX.Element {
   useEffect(() => {
     void load()
     const offProgress = window.api.onProgress(onProgress)
+    const offToast = window.api.onToast((t) => useStore.getState().showToast(t))
     const offChanged = window.api.onLibraryChanged(() => {
       void refreshLibrary()
       void refreshModels()
     })
     return () => {
       offProgress()
+      offToast()
       offChanged()
     }
   }, [load, onProgress, refreshLibrary, refreshModels])
+
+  const counts = useStore((s) => s.tree?.counts)
+  const reviewCount = (counts?.pending ?? 0) + (counts?.ratingReview ?? 0)
+
+  // Ctrl+Z anywhere (outside text fields) → undo the last decision.
+  const undo = useStore((s) => s.undo)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        void undo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [undo])
 
   useEffect(() => {
     if (settings) document.documentElement.dataset.theme = settings.theme
@@ -44,6 +65,7 @@ export default function App(): JSX.Element {
             <button key={v} className={`mini ${view === v ? 'on' : ''}`} onClick={() => setView(v)}>
               <Icon />
               {label}
+              {v === 'review' && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
             </button>
           ))}
         </nav>
@@ -54,7 +76,7 @@ export default function App(): JSX.Element {
       </header>
       <main className="body">
         {view === 'library' && <Library />}
-        {view === 'review' && <Placeholder title="검토 대기열" phase={2} />}
+        {view === 'review' && <Review />}
         {view === 'unknown' && <Placeholder title="미확인" phase={4} />}
         {view === 'characters' && <Placeholder title="캐릭터 관리" phase={4} />}
         {view === 'settings' && <SettingsView />}

@@ -10,7 +10,7 @@ import type { TagResult, Tagger, RgbImage } from '../ml/types'
 import type { AssistTagger, CharScore } from '../ml/assist'
 import { decideRating } from './rating'
 import { decideEnsemble, needsAssist } from './decide'
-import { displayName, parseCharacterTag } from './tags'
+import { displayName, parseCharacterTag, variantBase } from './tags'
 import { loadRgb } from './imageio'
 
 // Series for character tags whose game can't be resolved.
@@ -56,7 +56,25 @@ function seriesOf(tag: string, map?: Map<string, string>): { name: string; tag: 
   return { name: UNKNOWN_SERIES, tag: null }
 }
 
+// Outfit/version characters hang under their base character (created if
+// needed) — folders merge them, the library tree nests them.
+export function linkVariant(db: Db, id: number, tag: string, map?: Map<string, string>): void {
+  const sid = (db.prepare('SELECT series_id FROM characters WHERE id = ?').get(id) as { series_id: number }).series_id
+  // Bare-name base only when it's a known character in the same game.
+  const sameGame = (t: string): boolean =>
+    !!db.prepare('SELECT 1 FROM characters WHERE danbooru_tag = ? AND series_id = ?').get(t, sid)
+  const base = variantBase(tag, map, sameGame)
+  const parent = base ? ensureCharacter(db, base, map) : null
+  db.prepare('UPDATE characters SET parent_id = ? WHERE id = ? AND parent_id IS NOT ?').run(parent === id ? null : parent, id, parent === id ? null : parent)
+}
+
 export function ensureCharacter(db: Db, tag: string, map?: Map<string, string>): number {
+  const id = ensureCharacterRow(db, tag, map)
+  linkVariant(db, id, tag, map)
+  return id
+}
+
+function ensureCharacterRow(db: Db, tag: string, map?: Map<string, string>): number {
   const found = db
     .prepare('SELECT c.id, s.name AS sname FROM characters c JOIN series s ON s.id = c.series_id WHERE c.danbooru_tag = ?')
     .get(tag) as { id: number; sname: string } | undefined
@@ -118,7 +136,10 @@ export function applyTagResult(db: Db, imageId: number, st: StoredTags, o: Decid
       )
     }
     db.prepare("DELETE FROM image_characters WHERE image_id = ? AND source = 'auto'").run(imageId)
-    const hasUser = db.prepare("SELECT 1 FROM image_characters WHERE image_id = ? AND source = 'user'").get(imageId)
+    // User decisions win: confirmed characters, or "캐릭터 아님".
+    const hasUser =
+      db.prepare("SELECT 1 FROM image_characters WHERE image_id = ? AND source = 'user'").get(imageId) ||
+      (db.prepare('SELECT kind FROM images WHERE id = ?').get(imageId) as { kind: string }).kind === 'other'
     const rows = decideEnsemble(scoresFor(st, o.assistMode), o.t, o.ignored)
     if (!hasUser) {
       const ins = db.prepare(
@@ -241,6 +262,12 @@ export function redecideAll(db: Db, o: DecideOptions, ctx?: JobContext): number 
     if (ctx && i % 200 === 0) ctx.report(i, rows.length, '기준 다시 적용')
     applyTagResult(db, r.id, JSON.parse(r.tag_json) as StoredTags, o)
   })
+  // (Re)link outfit versions — also repairs links made by older rules.
+  for (const c of db.prepare('SELECT id, danbooru_tag AS t FROM characters WHERE danbooru_tag IS NOT NULL').all() as {
+    id: number
+    t: string
+  }[])
+    linkVariant(db, c.id, c.t, o.seriesMap)
   // Characters created earlier without a game: place them now if the table knows them.
   if (o.seriesMap?.size) {
     const orphans = db
