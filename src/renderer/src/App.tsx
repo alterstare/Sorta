@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { embedded, followHostTheme, postJob } from './embed'
+import { embedded, followHostTheme, onHostSettings, postJob, postView } from './embed'
 import type { SortaStatus } from '../../shared/ipc'
 import logo from './assets/logo.png'
 import type { JSX } from 'react'
@@ -118,6 +118,10 @@ function Main(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [undo])
 
+  // Inside Halftone: its tab-bar settings button opens Sorta's settings.
+  useEffect(() => onHostSettings(() => setView('settings')), [setView])
+  useEffect(() => postView(view), [view])
+
   // Theme: Sorta's own setting, or — inside Halftone — the host's theme.
   useEffect(() => {
     if (embedded) return followHostTheme((t) => (document.documentElement.dataset.theme = t))
@@ -142,9 +146,12 @@ function Main(): JSX.Element {
           ))}
         </nav>
         <div className="spacer" />
-        <button className={`icon-btn ${view === 'settings' ? 'on' : ''}`} title="설정" onClick={() => setView('settings')}>
-          <SettingsIcon />
-        </button>
+        {/* inside Halftone this button lives in Halftone's tab bar */}
+        {!embedded && (
+          <button className={`icon-btn ${view === 'settings' ? 'on' : ''}`} title="설정" onClick={() => setView('settings')}>
+            <SettingsIcon />
+          </button>
+        )}
       </header>
       <main className="body">
         {view === 'library' && <Library />}

@@ -297,13 +297,23 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
     groups: groups.get(r.id) ?? [],
     characters: labels.get(r.id) ?? []
   }))
-  return sortImages(items, f.sort, f.dir)
+  return sortImages(items, f.sort, f.dir, f.seed)
 }
 
 // Explorer-like sorting; ties fall back to the name.
-export function sortImages(items: ImageItem[], key: LibraryFilter['sort'], dir: LibraryFilter['dir']): ImageItem[] {
+export function sortImages(items: ImageItem[], key: LibraryFilter['sort'], dir: LibraryFilter['dir'], seed = 0): ImageItem[] {
   const byName = (a: ImageItem, b: ImageItem): number => collator.compare(a.name, b.name)
-  const cmp: Record<LibraryFilter['sort'], (a: ImageItem, b: ImageItem) => number> = {
+  if (key === 'random') {
+    // A stable shuffle: each picture's place comes from its id and the seed.
+    const h = (id: number): number => {
+      let x = (id ^ seed) >>> 0
+      x = Math.imul(x ^ (x >>> 16), 0x45d9f3b)
+      x = Math.imul(x ^ (x >>> 16), 0x45d9f3b)
+      return (x ^ (x >>> 16)) >>> 0
+    }
+    return items.sort((a, b) => h(a.id) - h(b.id))
+  }
+  const cmp: Record<Exclude<LibraryFilter['sort'], 'random'>, (a: ImageItem, b: ImageItem) => number> = {
     name: byName,
     date: (a, b) => (a.mtime ?? a.importedAt) - (b.mtime ?? b.importedAt) || byName(a, b),
     type: (a, b) => collator.compare(extOf(a.path), extOf(b.path)) || byName(a, b),

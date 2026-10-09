@@ -190,7 +190,7 @@ export default function Review(): JSX.Element {
       ) : (
         <div className="review-body">
           <div className="review-stage">
-            <img src={window.api.imageUrl(item.path)} draggable={false} />
+            <img key={item.id} className="review-img" src={window.api.imageUrl(item.path)} draggable={false} />
             <button className="viewer-arrow left" disabled={index <= 0} title="이전 (←)" onClick={() => skip(-1)}>
               <KeyboardArrowLeftIcon />
             </button>

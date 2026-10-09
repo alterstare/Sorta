@@ -2,11 +2,11 @@
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import { useKept } from '../keep'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import ContextMenu from './ContextMenu'
 import { AddIcon, ContentCopyIcon, DeleteIcon, EditIcon, PersonOffIcon, RestartIcon } from './icons'
 import { copyText, setIgnored } from '../collect'
-import type { LibraryNode, TreeAffiliation, TreeCharacter } from '../../../shared/types'
+import type { LibraryNode, LibraryTree, TreeAffiliation, TreeCharacter } from '../../../shared/types'
 import { ArrowDownIcon, KeyboardArrowRightIcon } from './icons'
 
 // Selectors must not return a fresh [] each call (endless re-render).
@@ -14,6 +14,29 @@ const NO_TAGS: string[] = []
 
 const same = (a: LibraryNode, b: LibraryNode): boolean =>
   a.type === b.type && ('id' in a ? a.id : 0) === ('id' in b ? b.id : 0)
+const nodeKey = (n: LibraryNode): string => `${n.type}:${'id' in n ? n.id : ''}`
+
+// Collapse keys (games by id, 소속 by -id) above a node, or null if absent.
+function ancestors(tree: LibraryTree, n: LibraryNode): number[] | null {
+  const inChars = (list: TreeCharacter[]): boolean => list.some((c) => (n.type === 'character' && c.id === n.id) || inChars(c.children ?? []))
+  const inAffs = (list: TreeAffiliation[], path: number[]): number[] | null => {
+    for (const a of list) {
+      if (n.type === 'affiliation' && a.id === n.id) return path
+      const p = [...path, -a.id]
+      const sub = inAffs(a.children, p)
+      if (sub) return sub
+      if (inChars(a.characters)) return p
+    }
+    return null
+  }
+  for (const s of tree.series) {
+    if (n.type === 'series' && s.id === n.id) return []
+    const p = inAffs(s.affiliations, [s.id])
+    if (p) return p
+    if (inChars(s.characters)) return [s.id]
+  }
+  return n.type === 'group' ? [] : null
+}
 
 export default function Tree(): JSX.Element {
   const tree = useStore((s) => s.tree)
@@ -30,12 +53,44 @@ export default function Tree(): JSX.Element {
   }
   const showToast = useStore((s) => s.showToast)
 
+  // Search pick → open the collapsed levels above it, then scroll to it and
+  // flash it (the same pulse as the 조직도 search).
+  const reveal = useStore((s) => s.treeReveal)
+  const [flash, setFlash] = useState<{ key: string; n: number } | null>(null)
+  useEffect(() => {
+    if (!reveal || !tree) return
+    const up = ancestors(tree, reveal.node)
+    if (!up) return
+    if (up.some((k) => closed.has(k)))
+      setClosed((prev) => {
+        const nx = new Set(prev)
+        for (const k of up) nx.delete(k)
+        return nx
+      })
+    setFlash({ key: nodeKey(reveal.node), n: reveal.n })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal?.n, tree])
+  useEffect(() => {
+    if (!flash) return
+    const el = document.querySelector<HTMLElement>(`.tree [data-node="${flash.key}"]`)
+    if (!el) return
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el.classList.remove('tree-flash')
+    void el.offsetWidth // restart when the same item is picked again
+    el.classList.add('tree-flash')
+    const t = window.setTimeout(() => el.classList.remove('tree-flash'), 1600)
+    setFlash(null)
+    return () => window.clearTimeout(t)
+  }, [flash, closed])
+
   // count (shown): the second number is under the rating filter, when one is set.
   const item = (n: LibraryNode, label: string, count: number | null, shown?: number, extra = '', pad?: number): JSX.Element => (
     <button
       className={`tree-item ${extra} ${same(n, node) ? 'on' : ''}`}
-      style={pad === undefined ? undefined : { paddingLeft: pad }}
+      // --pad: the divider under the item starts where its text starts
+      style={pad === undefined ? undefined : ({ paddingLeft: pad, '--pad': `${pad}px` } as React.CSSProperties)}
       title={label}
+      data-node={nodeKey(n)}
       onClick={() => setNode(n)}
     >
       <span className="tree-label">{label}</span>

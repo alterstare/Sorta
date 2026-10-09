@@ -3,13 +3,13 @@
 // characters between boxes, add / rename / delete boxes. The game's wiki can
 // suggest affiliations (by character name); suggestions apply only when the
 // user accepts them. Every change is one Ctrl+Z step.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, JSX, ReactNode } from 'react'
 import { useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { WikiRow } from '../store'
 import type { OrgChart, OrgCharacter, OrgNode, WikiSuggestion } from '../../../shared/types'
-import { AddIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon, OpenInNewIcon, SearchIcon } from './icons'
+import { AddIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon, OpenInNewIcon, PersonIcon, SearchIcon } from './icons'
 
 type Drag = { kind: 'aff'; id: number } | { kind: 'chars'; ids: number[] }
 type Drop = 'before' | 'inside' | 'after'
@@ -89,6 +89,29 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
     setSel([])
     setEditing(null)
   }, [game])
+  // Search → jump: once the target's game is shown, scroll its box (or the
+  // character's chip) into view and flash it.
+  const [goto, setGoto] = useState<Hit | null>(null)
+  useEffect(() => {
+    if (!goto || !chart || chart.series !== goto.game) return
+    const sel = goto.kind === 'aff' ? `[data-org-id="${goto.id}"]` : `[data-char-id="${goto.id}"]`
+    const el = document.querySelector<HTMLElement>(`.page.org ${sel}`)
+    setGoto(null)
+    if (!el) return
+    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' })
+    el.classList.remove('org-found-flash')
+    void el.offsetWidth // restart the animation when the same target is picked again
+    el.classList.add('org-found-flash')
+    window.setTimeout(() => el.classList.remove('org-found-flash'), 1600)
+  }, [goto, chart])
+  const jump = useCallback(
+    (h: Hit): void => {
+      clearOrgLookup()
+      setGoto(h)
+      setGame(h.game)
+    },
+    [clearOrgLookup]
+  )
   // A finished lookup for another game → show that game.
   useEffect(() => {
     if (orgLookup?.rows && orgLookup.series !== game && games.some((g) => g.name === orgLookup.series)) setGame(orgLookup.series)
@@ -178,6 +201,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
           onChange={(e) => setWiki(e.target.value)}
           onBlur={() => chart && wiki.trim() !== (chart.wiki ?? '') && void act(() => window.api.setWiki(chart.series, wiki.trim() || null))}
         />
+        <OrgSearch games={games} version={libraryVersion} onPick={jump} />
         <div className="flat-group">
           <button className="mini" disabled={!chart || !allowed || looking || running} onClick={() => lookup()}>
             <SearchIcon />
@@ -325,6 +349,123 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
   )
 }
 
+type Hit = { kind: 'aff' | 'char'; id: number; game: string; name: string; path: string; alias?: string }
+
+// Find an affiliation (by name or earlier name) or a character in any game
+// and jump to it. Charts are loaded when the box is first focused.
+function OrgSearch({ games, version, onPick }: { games: { name: string }[]; version: number; onPick: (h: Hit) => void }): JSX.Element {
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const [sel, setSel] = useState(0)
+  const [index, setIndex] = useState<{ v: number; hits: Hit[] } | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  const loading = useRef(-1)
+  const load = (): void => {
+    if (index?.v === version || loading.current === version) return
+    loading.current = version
+    void Promise.all(games.map((g) => window.api.orgChart(g.name))).then((charts) => {
+      const hits: Hit[] = []
+      for (const c of charts) {
+        const byId = new Map(c.nodes.map((n) => [n.id, n]))
+        const path = (id: number | null): string => {
+          const out: string[] = []
+          for (let n = id === null ? undefined : byId.get(id); n; n = n.parentId === null ? undefined : byId.get(n.parentId)) out.unshift(n.name)
+          return [c.series, ...out].join(' › ')
+        }
+        for (const n of c.nodes) hits.push({ kind: 'aff', id: n.id, game: c.series, name: n.name, path: path(n.parentId), alias: n.aliases.join(', ') })
+        for (const ch of c.characters)
+          hits.push({ kind: 'char', id: ch.id, game: c.series, name: ch.name, path: ch.affiliationId === null ? `${c.series} · 소속 미지정` : path(ch.affiliationId) })
+      }
+      setIndex({ v: version, hits })
+    })
+  }
+
+  const hits = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t || !index) return []
+    const score = (h: Hit): number => {
+      const n = h.name.toLowerCase()
+      if (n === t) return 0
+      if (n.startsWith(t)) return 1
+      if (n.includes(t)) return 2
+      if (h.alias?.toLowerCase().includes(t)) return 3
+      return -1
+    }
+    return index.hits
+      .map((h) => ({ h, s: score(h) }))
+      .filter((x) => x.s >= 0)
+      .sort((a, b) => (a.h.kind === b.h.kind ? 0 : a.h.kind === 'aff' ? -1 : 1) || a.s - b.s || a.h.name.localeCompare(b.h.name))
+      .slice(0, 40)
+      .map((x) => x.h)
+  }, [q, index])
+  useEffect(() => setSel(0), [q])
+  useEffect(() => {
+    listRef.current?.querySelectorAll('.picker-opt')[sel]?.scrollIntoView({ block: 'nearest' })
+  }, [sel])
+
+  const pick = (h: Hit | undefined): void => {
+    if (!h) return
+    onPick(h)
+    setOpen(false)
+  }
+
+  return (
+    <div className="picker org-search">
+      <div className="picker-box">
+        <SearchIcon />
+        <input
+          value={q}
+          placeholder="소속 · 캐릭터 찾기"
+          onFocus={() => {
+            load()
+            setOpen(true)
+          }}
+          onBlur={() => setOpen(false)}
+          onChange={(e) => {
+            load()
+            setQ(e.target.value)
+            setOpen(true)
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              setSel((i) => Math.min(hits.length - 1, i + 1))
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setSel((i) => Math.max(0, i - 1))
+            } else if (e.key === 'Enter') pick(hits[sel])
+            else if (e.key === 'Escape') {
+              setQ('')
+              setOpen(false)
+            }
+          }}
+        />
+      </div>
+      {open && q.trim() && (
+        <div className="picker-list" ref={listRef}>
+          {!index && <div className="picker-sec">불러오는 중…</div>}
+          {index && !hits.length && <div className="picker-sec">찾는 소속 · 캐릭터가 없습니다</div>}
+          {hits.map((h, i) => (
+            <button
+              key={`${h.kind}${h.id}`}
+              className={`picker-opt ${i === sel ? 'sel' : ''}`}
+              onMouseEnter={() => setSel(i)}
+              onMouseDown={(e) => e.preventDefault()} // keep focus: the blur would close the list before the click
+              onClick={() => pick(h)}
+            >
+              {h.kind === 'char' && <PersonIcon />}
+              <span className="picker-name">{h.name}</span>
+              <span className="picker-series">{h.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CharChip({
   c,
   sel,
@@ -340,6 +481,7 @@ function CharChip({
   return (
     <span
       className={`tag-chip org-char ${on ? 'confirmed' : ''}`}
+      data-char-id={c.id}
       draggable
       title={`${c.images.toLocaleString()}장 · 끌어서 옮기기, Ctrl+클릭으로 여러 명 선택`}
       onDragStart={(e) => (e.stopPropagation(), onDragStart(e, c.id))}
@@ -410,6 +552,7 @@ function Box(p: TreeProps & { n: OrgNode }): JSX.Element {
   return (
     <div
       className={`org-box ${chars.length ? '' : 'no-chars'} ${hint ? `drop-${hint}` : ''}`}
+      data-org-id={n.id}
       draggable={!renaming}
       onDragStart={(e) => {
         e.dataTransfer.setData(MIME, JSON.stringify({ kind: 'aff', id: n.id } satisfies Drag))

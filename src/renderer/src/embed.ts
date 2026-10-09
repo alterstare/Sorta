@@ -33,3 +33,17 @@ export interface SortaJobMessage {
 export function postJob(event: ProgressEvent): void {
   if (embedded) window.parent.postMessage({ type: 'sorta-job', event } satisfies SortaJobMessage, '*')
 }
+
+// The host's tab bar carries Sorta's settings button: the host asks to open
+// it, and Sorta reports which screen is showing (so the button lights up).
+export function onHostSettings(open: () => void): () => void {
+  if (!embedded) return () => {}
+  const h = (e: MessageEvent): void => {
+    if (e.source === window.parent && e.data?.type === 'sorta-settings') open()
+  }
+  window.addEventListener('message', h)
+  return () => window.removeEventListener('message', h)
+}
+export function postView(view: string): void {
+  if (embedded) window.parent.postMessage({ type: 'sorta-view', view }, '*')
+}

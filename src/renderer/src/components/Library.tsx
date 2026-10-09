@@ -5,21 +5,22 @@ import type { JSX } from 'react'
 import { useStore } from '../store'
 import type { RatingPick, SafeMode, SortKey } from '../../../shared/types'
 import {
+  AddIcon,
   ArrowDownIcon,
   ArrowUpIcon,
-  CloseIcon,
   FilterIcon,
   FolderIcon,
   FolderOpenIcon,
   GridViewIcon,
   ListIcon,
   PlayIcon,
-  SearchIcon,
+  RefreshIcon,
   SettingsIcon,
   SortIcon,
   VisibilityIcon
 } from './icons'
 import Tree from './Tree'
+import LibrarySearch from './LibrarySearch'
 import ThumbGrid, { safeMode } from './ThumbGrid'
 import type { ThumbSize } from './ThumbGrid'
 import Viewer from './Viewer'
@@ -38,7 +39,8 @@ const SORTS: [SortKey, string][] = [
   ['name', '이름'],
   ['date', '날짜'],
   ['type', '유형'],
-  ['size', '크기']
+  ['size', '크기'],
+  ['random', '무작위']
 ]
 const SIZES: [ThumbSize, string][] = [
   ['s', '작은 아이콘'],
@@ -52,16 +54,16 @@ const SAFE: [SafeMode, string][] = [
 ]
 
 export default function Library(): JSX.Element {
-  const { settings, saveSettings, setView, filter, setRatings, setSort, setDir, setQuery, setGroupFilter, images, tree, showToast, jobs } = useStore()
+  const { settings, saveSettings, setView, filter, setRatings, setSort, setDir, setGroupFilter, reshuffle, images, tree, showToast, jobs } = useStore()
   // 그룹 filter: checked groups only (none checked = every picture); deleted groups drop out.
   const groups = tree?.groups ?? []
+  const selectedCount = useStore((s) => s.selected.size)
   const groupSel = (filter.groups ?? []).filter((id) => groups.some((g) => g.id === id))
   const groupLabel = !groupSel.length
     ? '그룹: 전체'
     : groupSel.length === 1
       ? `그룹: ${groups.find((g) => g.id === groupSel[0])?.name}`
       : `그룹: ${groupSel.length}개`
-  const [q, setQ] = useState(filter.q)
   const [busy, setBusy] = useState(false)
   // "숨기기" masking drops those images from the list (and the viewer).
   const items = useMemo(() => images.filter((i) => safeMode(i, settings) !== 'hide'), [images, settings])
@@ -111,29 +113,17 @@ export default function Library(): JSX.Element {
               <PlayIcon />
               분류 실행
             </button>
+            <button
+              className="mini"
+              title={filter.sort === 'random' ? '무작위 순서를 새로 섞습니다' : '목록을 지금 정렬 기준으로 다시 정렬합니다'}
+              onClick={() => reshuffle()}
+            >
+              <RefreshIcon />
+              재정렬
+            </button>
           </div>
           <span className="spacer" />
-          <div className="search-box">
-            <SearchIcon />
-            <input
-              value={q}
-              placeholder="캐릭터 · 게임 · 파일명 검색"
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && setQuery(q)}
-            />
-            {q && (
-              <button
-                className="search-clear"
-                title="지우기"
-                onClick={() => {
-                  setQ('')
-                  setQuery('')
-                }}
-              >
-                <CloseIcon />
-              </button>
-            )}
-          </div>
+          <LibrarySearch />
         </div>
         {/* bottom row: 격자/목록 · 차순 | 분류 · 그룹 · 정렬 · 보기 · 마스킹 … count */}
         <div className="toolbar bottom">
@@ -170,13 +160,13 @@ export default function Library(): JSX.Element {
               )}
             </DropMenu>
             <DropMenu icon={<FolderIcon />} label={groupLabel}>
-              {() => (
+              {(close) => (
                 <>
                   <MenuOption box on={!groupSel.length} onClick={() => setGroupFilter([])}>
                     모든 그림
                   </MenuOption>
                   <div className="menu-line" />
-                  {groups.length === 0 && <div className="menu-sec">그룹이 없습니다. 왼쪽 목록의 "새 그룹"으로 만드세요.</div>}
+                  {groups.length === 0 && <div className="menu-sec">아직 그룹이 없습니다.</div>}
                   {groups.map((g) => (
                     <MenuOption
                       key={g.id}
@@ -188,6 +178,18 @@ export default function Library(): JSX.Element {
                       <span className="dim"> {g.count.toLocaleString()}</span>
                     </MenuOption>
                   ))}
+                  <div className="menu-line" />
+                  {/* selected pictures (if any) go straight into the new group */}
+                  <button
+                    className="menu-opt new"
+                    onClick={() => {
+                      close()
+                      useStore.getState().setGroupDialog([...useStore.getState().selected])
+                    }}
+                  >
+                    <AddIcon />
+                    {selectedCount ? `새 그룹 (선택한 ${selectedCount}장 넣기)` : '새 그룹'}
+                  </button>
                 </>
               )}
             </DropMenu>

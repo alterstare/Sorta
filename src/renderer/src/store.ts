@@ -43,6 +43,7 @@ interface State {
   images: ImageItem[]
   viewerIndex: number | null // index into `images` of the opened image
   libraryVersion: number // bumped on every library refresh (views re-query)
+  imagesKey: string // the filter (JSON) `images` was loaded for
   selected: Set<number> // multi-selected image ids in the grid
   setSelected: (s: Set<number>) => void
   // Screen state that must survive leaving a view (results of slow jobs,
@@ -74,11 +75,15 @@ interface State {
   setRatings: (r: RatingPick[], prev?: RatingPick[] | null) => void
   setSort: (k: SortKey) => void
   setGroupFilter: (ids: number[]) => void
+  reshuffle: () => void // 재정렬: a new random order (other sorts: just re-query)
   setDir: (d: SortDir) => void
   setQuery: (q: string) => void
   openViewer: (i: number | null) => void
+  goToNode: (node: LibraryNode) => void // search pick: open the node, the tree scrolls to it
+  treeReveal: { node: LibraryNode; n: number } | null
 }
 
+let librarySeq = 0
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useStore = create<State>((set, get) => ({
@@ -89,10 +94,11 @@ export const useStore = create<State>((set, get) => ({
   jobs: {},
   toast: null,
   tree: null,
-  filter: { node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], q: '', sort: 'date', dir: 'desc' },
+  filter: { node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], q: '', sort: 'date', dir: 'desc', seed: Date.now() % 2147483647 },
   images: [],
   viewerIndex: null,
   libraryVersion: 0,
+  imagesKey: '',
   selected: new Set(),
   setSelected: (selected) => set({ selected }),
   kept: {},
@@ -150,11 +156,14 @@ export const useStore = create<State>((set, get) => ({
   refreshModels: async () => set({ models: await window.api.models() }),
   refreshLibrary: async () => {
     const f = get().filter
+    const seq = ++librarySeq
     const [tree, images] = await Promise.all([window.api.tree(f.ratings, f.groups), window.api.images(f)])
+    // A newer request (another node / filter) superseded this one.
+    if (seq !== librarySeq) return
     // Keep only selections that are still listed.
     const ids = new Set(images.map((i) => i.id))
     const selected = new Set([...get().selected].filter((id) => ids.has(id)))
-    set({ tree, images, selected, libraryVersion: get().libraryVersion + 1 })
+    set({ tree, images, selected, imagesKey: JSON.stringify(f), libraryVersion: get().libraryVersion + 1 })
   },
   setNode: (node) => {
     set({ filter: { ...get().filter, node }, viewerIndex: null, selected: new Set() })
@@ -163,6 +172,10 @@ export const useStore = create<State>((set, get) => ({
   setRatings: (ratings, prev) => {
     set({ filter: { ...get().filter, ratings }, viewerIndex: null })
     void get().saveSettings(prev === undefined ? { libRatings: ratings } : { libRatings: ratings, libRatingsPrev: prev })
+    void get().refreshLibrary()
+  },
+  reshuffle: () => {
+    if (get().filter.sort === 'random') set({ filter: { ...get().filter, seed: (Date.now() * 7919) % 2147483647 } })
     void get().refreshLibrary()
   },
   setGroupFilter: (groups) => {
@@ -184,5 +197,15 @@ export const useStore = create<State>((set, get) => ({
     set({ filter: { ...get().filter, q }, viewerIndex: null })
     void get().refreshLibrary()
   },
-  openViewer: (viewerIndex) => set({ viewerIndex })
+  openViewer: (viewerIndex) => set({ viewerIndex }),
+  treeReveal: null,
+  goToNode: (node) => {
+    set({
+      filter: { ...get().filter, node, q: '' },
+      viewerIndex: null,
+      selected: new Set(),
+      treeReveal: { node, n: (get().treeReveal?.n ?? 0) + 1 }
+    })
+    void get().refreshLibrary()
+  }
 }))

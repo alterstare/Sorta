@@ -1735,6 +1735,92 @@ kbd {
 .org-bar select.tag-input {
   width: 220px;
 }
+.org-search {
+  width: 240px;
+}
+.org-search .picker-box {
+  height: 32px;
+  border-radius: 999px;
+}
+.org-search .picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 380px;
+  z-index: 30;
+}
+.org-search .picker-opt .micon {
+  font-size: 16px;
+  color: var(--text-dim);
+}
+.org-search .picker-series {
+  margin-left: auto;
+  text-align: right;
+}
+/* search → jump: the found box / chip pulses briefly */
+@keyframes org-flash {
+  0%,
+  60% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+.org-found-flash {
+  animation: org-flash 1.6s ease-out;
+}
+/* the same pulse inside the tree (inset: the tree clips sideways) */
+@keyframes tree-flash {
+  0%,
+  60% {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+.tree .tree-item.tree-flash {
+  animation: tree-flash 1.6s ease-out;
+}
+/* library search: suggestions drop under the box */
+.lib-search {
+  gap: 0;
+}
+.lib-search .search-box {
+  width: 280px;
+}
+.lib-search .picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 400px;
+  z-index: 30;
+}
+.lib-search .picker-opt .micon {
+  font-size: 16px;
+  color: var(--text-dim);
+}
+.lib-search .picker-opt.new .micon {
+  color: var(--accent);
+}
+.lib-search .picker-series {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.lib-search .picker-name {
+  flex: none;
+  max-width: 55%;
+}
+.lib-search .picker-opt.new .picker-name {
+  flex: 1;
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .org-wiki {
   flex: 1;
   min-width: 260px;
@@ -1792,76 +1878,6 @@ kbd {
 .org-scroll {
   overflow: auto;
   padding: 8px 0 24px;
-}
-/* classic top-down chart: connectors drawn with li borders */
-.org-chart,
-.org-chart ul {
-  display: flex;
-  justify-content: center;
-  margin: 0;
-  padding: 18px 0 0;
-  position: relative;
-}
-.org-chart {
-  padding-top: 0;
-  width: max-content;
-  min-width: 100%;
-}
-.org-chart li {
-  list-style: none;
-  position: relative;
-  padding: 18px 6px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.org-chart > li {
-  padding-top: 0;
-}
-.org-chart li::before,
-.org-chart li::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 50%;
-  width: 50%;
-  height: 18px;
-  border-top: 1px solid var(--muted);
-}
-.org-chart li::after {
-  right: auto;
-  left: 50%;
-  border-left: 1px solid var(--muted);
-}
-.org-chart > li::before,
-.org-chart > li::after,
-.org-chart li:only-child::before {
-  display: none;
-}
-.org-chart li:only-child::after {
-  border-top: none;
-}
-.org-chart li:first-child::before,
-.org-chart li:last-child::after {
-  border-top: none;
-}
-.org-chart li:last-child:not(:only-child)::before {
-  border-right: 1px solid var(--muted);
-  border-radius: 0 6px 0 0;
-}
-.org-chart li:last-child:not(:only-child)::after {
-  display: none;
-}
-.org-chart li:first-child:not(:only-child)::after {
-  border-radius: 6px 0 0 0;
-}
-.org-chart ul::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 50%;
-  height: 18px;
-  border-left: 1px solid var(--muted);
 }
 .org-box {
   background: var(--bg-1);
@@ -2579,7 +2595,12 @@ select.tag-input {
   max-width: 1240px;
 }
 
-/* ---- 조직도: root on the left, branches to the right, siblings stacked ---- */
+/* ---- 조직도: root on the left, branches to the right, siblings stacked ----
+   Connectors (children only — the root li draws none):
+   ul::before = parent box → spine, li::before = spine → box,
+   li::after = the spine. Every line stays inside its own box (the rounded
+   ends have real width), so nothing is painted outside and left behind
+   while scrolling. */
 .org-scroll {
   overflow: auto;
   padding: 12px 4px 24px;
@@ -2593,8 +2614,10 @@ select.tag-input {
   padding: 0;
   list-style: none;
   position: relative;
-  width: auto;
-  min-width: 0;
+}
+.org-chart {
+  width: max-content;
+  min-width: 100%;
 }
 .org-chart ul {
   padding-left: 28px;
@@ -2604,67 +2627,57 @@ select.tag-input {
   flex-direction: row;
   align-items: center;
   position: relative;
+  list-style: none;
+}
+.org-chart ul > li {
   padding: 5px 0 5px 28px;
 }
-.org-chart > li {
-  padding: 0;
-}
-/* parent box → spine */
-.org-chart ul::before {
+.org-chart ul::before,
+.org-chart ul > li::before,
+.org-chart ul > li::after {
   content: '';
   position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.org-chart ul::before,
+.org-chart ul > li::before {
   left: 0;
-  top: 50%;
+  top: calc(50% - 0.5px);
   width: 28px;
-  height: 0;
-  border-top: 1px solid var(--muted);
-  border-left: none;
+  height: 1px;
+  background: var(--muted);
 }
-/* spine → child box */
-.org-chart li::before {
-  content: '';
-  position: absolute;
+.org-chart ul > li::after {
   left: 0;
-  top: 50%;
-  right: auto;
-  width: 28px;
-  height: 0;
-  border: none;
-  border-top: 1px solid var(--muted);
-  border-radius: 0;
-  display: block;
-}
-/* the spine itself */
-.org-chart li::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: auto;
   top: 0;
   bottom: 0;
-  width: 0;
-  height: auto;
-  border: none;
+  width: 1px;
+  background: var(--muted);
+}
+.org-chart ul > li:first-child:not(:only-child)::after,
+.org-chart ul > li:last-child:not(:only-child)::after {
+  width: 8px;
+  background: none;
   border-left: 1px solid var(--muted);
-  border-radius: 0;
-  display: block;
 }
-.org-chart li:first-child::after {
-  top: 50%;
-}
-.org-chart li:last-child::after {
-  bottom: 50%;
-}
-.org-chart li:only-child::after,
-.org-chart > li::before,
-.org-chart > li::after {
-  display: none;
-}
-.org-chart li:first-child:not(:only-child)::after {
+.org-chart ul > li:first-child:not(:only-child)::after {
+  top: calc(50% - 0.5px);
+  border-top: 1px solid var(--muted);
   border-top-left-radius: 8px;
 }
-.org-chart li:last-child:not(:only-child)::after {
+.org-chart ul > li:last-child:not(:only-child)::after {
+  bottom: calc(50% - 0.5px);
+  border-bottom: 1px solid var(--muted);
   border-bottom-left-radius: 8px;
+}
+.org-chart ul > li:only-child::after {
+  display: none;
+}
+.org-chart ul > li:first-child:not(:only-child)::before,
+.org-chart ul > li:last-child:not(:only-child)::before {
+  left: 8px;
+  width: 20px;
 }
 
 /* boxes: rounded like the rest, names never cut */
@@ -2728,23 +2741,6 @@ select.tag-input {
 .org-found-row .mini.icon {
   width: 30px;
   height: 30px;
-}
-/* undo the old top-down connector rules for the side-ways chart */
-.org-chart li:first-child::before,
-.org-chart li:last-child::before,
-.org-chart li:only-child::before,
-.org-chart li:last-child:not(:only-child)::before {
-  display: block;
-  border: none;
-  border-top: 1px solid var(--muted);
-  border-radius: 0;
-}
-.org-chart li:last-child:not(:only-child)::after {
-  display: block;
-}
-.org-chart > li::before,
-.org-chart > li::after {
-  display: none;
 }
 /* tree: long names wrap instead of being cut; nothing overflows sideways */
 .tree {
@@ -3044,4 +3040,175 @@ select.tag-input {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+}
+
+/* tree: a short divider line between items */
+.tree .tree-item {
+  position: relative;
+}
+.tree .tree-item::after {
+  content: '';
+  position: absolute;
+  left: var(--pad, 10px);
+  right: 10px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+.tree .tree-item.on::after,
+.tree .tree-item:hover::after {
+  display: none;
+}
+
+/* ===== motion (same feel as Halftone: ~120 ms, never slow) =====
+   Popups: a quick fade + 4px slide on open, the reverse on close (the close
+   ghost comes from exitAnimations.ts). Screens / tabs / lists fade in. Uses
+   the individual translate / scale properties so a popup's own transform
+   (positioning) is untouched. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+@keyframes pop-in-up {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes view-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+@keyframes zoom-in {
+  from {
+    opacity: 0;
+    scale: 0.985;
+  }
+}
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+@keyframes modal-out {
+  to {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes zoom-out {
+  to {
+    opacity: 0;
+    scale: 0.985;
+  }
+}
+.dropmenu-panel,
+.ctx-menu,
+.ctx-submenu,
+.group-pop,
+.picker-list {
+  animation: pop-in 0.12s ease-out;
+}
+.toast {
+  animation: pop-in-up 0.14s ease-out;
+}
+.modal-back {
+  animation: fade-in 0.12s ease-out;
+}
+.modal {
+  animation: modal-in 0.14s ease-out;
+}
+.pop-closing {
+  pointer-events: none;
+  animation: pop-out 0.1s ease-in forwards;
+}
+.modal-back.pop-closing {
+  animation: fade-out 0.12s ease-in forwards;
+}
+.modal-back.pop-closing .modal {
+  animation: modal-out 0.12s ease-in forwards;
+}
+.viewer.pop-closing {
+  animation: fade-out 0.12s ease-in forwards;
+}
+.viewer.pop-closing .viewer-img {
+  animation: zoom-out 0.12s ease-in forwards;
+}
+/* screens (nav, 캐릭터 tabs, 미확인 묶음 ↔ 목록, setup) */
+.body > .library,
+.body > .review,
+.body > .page,
+.page,
+.setup,
+.dups,
+.locked {
+  animation: view-in 0.16s ease-out;
+}
+/* list contents: a new tree node / filter / sort fades in */
+.grid-inner,
+.unk-cards,
+.org-chart,
+.manage-side > * {
+  animation: fade-in 0.14s ease-out;
+}
+/* 크게 보기 + 검토: the picture eases in, each next picture too */
+.viewer {
+  animation: fade-in 0.12s ease-out;
+}
+.viewer-img,
+.review-img {
+  animation: zoom-in 0.14s ease-out;
+}
+/* tree groups opening */
+.tree-group > div:not(.tree-row) {
+  animation: fade-in 0.12s ease-out;
+}
+/* hover / state changes ease instead of jumping */
+.tree-item,
+.cell-img,
+.lrow,
+.menu-opt,
+.ctx-item,
+.group-pop-opt,
+.manage-row,
+.choice-card,
+.org-box,
+.dup-item,
+.seg-btn,
+.star {
+  transition:
+    background-color 0.12s ease-out,
+    border-color 0.12s ease-out,
+    color 0.12s ease-out,
+    opacity 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

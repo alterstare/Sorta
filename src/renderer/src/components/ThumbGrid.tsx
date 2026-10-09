@@ -90,8 +90,9 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
   }, [])
   // Scroll position per list (filter): kept while away from the library and
   // across background refreshes; another node / rating / search → top.
-  const filter = useStore((s) => s.filter)
-  const listKey = JSON.stringify(filter)
+  // Keyed by the filter the shown images were loaded for (not the requested
+  // one), so the list switches once, when the new images arrive.
+  const listKey = useStore((s) => s.imagesKey)
   const [saved, setSaved] = useKept<{ key: string; top: number }>('grid.scroll', { key: '', top: 0 })
   const topRef = useRef(0)
   useEffect(() => {
@@ -200,7 +201,8 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
         setBox((b) => (Math.abs(b.top - top) < rowH / 3 ? b : { ...b, top }))
       }}
     >
-      <div className="grid-inner" style={{ height: PAD * 2 + rows * rowH }}>
+      {/* keyed by the list: another node / filter fades the new list in */}
+      <div key={listKey} className="grid-inner" style={{ height: PAD * 2 + rows * rowH }}>
         {cells}
       </div>
       {menu}

@@ -86,6 +86,7 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
       </div>
       <EditBar img={img} />
       <img
+        key={img.id}
         className="viewer-img"
         src={window.api.imageUrl(img.path)}
         onClick={(e) => e.stopPropagation()}

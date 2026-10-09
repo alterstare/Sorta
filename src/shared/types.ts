@@ -95,7 +95,7 @@ export type LibraryNode =
   | { type: 'unclassified' } // imported, tagger not run yet
 
 export type RatingPick = Exclude<Rating, 'unknown'>
-export type SortKey = 'name' | 'date' | 'type' | 'size'
+export type SortKey = 'name' | 'date' | 'type' | 'size' | 'random'
 export type SortDir = 'asc' | 'desc'
 
 export interface LibraryFilter {
@@ -105,6 +105,7 @@ export interface LibraryFilter {
   q: string
   sort: SortKey
   dir: SortDir
+  seed?: number // random order: the same seed keeps the same order (재정렬 = new seed)
 }
 
 export interface TreeCharacter {
