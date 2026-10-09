@@ -78,3 +78,34 @@ describe('learning from user confirmations', () => {
     core.close()
   })
 })
+
+describe('unknown groups', () => {
+  it('groups look-alike unknown images; naming the group confirms them all', async () => {
+    const core = new SortaCore(join(dir, 'data'), {
+      taggerFactory: async () => new MockTagger({}),
+      learnFactory: async () => ({
+        embedder: new MockEmbedder(8, {
+          '200,10,10': [1, 0.1, 0, 0, 0, 0, 0, 0],
+          '201,10,10': [1, 0.15, 0.05, 0, 0, 0, 0, 0],
+          '10,10,200': [0, 0, 1, 0.2, 0, 0, 0, 0]
+        }),
+        detector: new MockDetector()
+      })
+    })
+    core.saveSettings({ sourceDirs: [src] })
+    await solid(join(src, '1.png'), [200, 10, 10])
+    await solid(join(src, '2.png'), [201, 10, 10])
+    await solid(join(src, 'b.png'), [10, 10, 200])
+    await core.runImport().done
+    await core.runClassify().done
+    expect(core.unknownClusters().notEmbedded).toBe(3)
+    await core.runLearnRefresh().done
+    const r = core.unknownClusters()
+    expect(r.clusters.map((c) => c.images.map((i) => i.path.slice(-5)).sort())).toEqual([['1.png', '2.png']])
+    expect(r.loose).toBe(1)
+    const aoi = core.createCharacter('Aoi', 'Blue Archive')
+    core.confirmCharacters(r.clusters[0].images.map((i) => i.id), [aoi])
+    expect(core.unknownClusters().clusters).toHaveLength(0)
+    core.close()
+  })
+})

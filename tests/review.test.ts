@@ -110,8 +110,8 @@ describe('decisions + undo', () => {
     const core = await setup()
     const id = core.createCharacter('Aoi', 'Blue Archive')
     expect(core.createCharacter('Aoi', 'Blue Archive')).toBe(id)
-    expect(core.searchCharacters('ao').map((c) => c.name)).toContain('Aoi')
-    expect(core.searchCharacters('hoshino').map((c) => [c.name, c.series])).toEqual([['Hoshino', 'Blue Archive']])
+    expect((await core.searchCharacters('ao')).map((c) => c.name)).toContain('Aoi')
+    expect((await core.searchCharacters('hoshino')).map((c) => [c.name, c.series])).toEqual([['Hoshino', 'Blue Archive']])
     expect(core.seriesNames()).toContain('Blue Archive')
     core.close()
   })
@@ -196,6 +196,34 @@ describe('outfit candidates in review', () => {
     const [q] = core.reviewQueue('character')
     expect(q.confirmed.map((c) => c.name)).toEqual(['Ako'])
     expect(q.candidates.map((c) => [c.name, c.relatedTo?.name])).toEqual([['Ako (Dress)', 'Ako']])
+    core.close()
+  })
+})
+
+describe('autocomplete: characters the taggers know', () => {
+  it('lists model-known characters after library ones and creates them on pick', async () => {
+    const core = new SortaCore(':memory:', {
+      vocabTags: ['lux_(league_of_legends)', 'lux_(star_guardian)_(league_of_legends)', 'luxu_(blue_archive)', 'hoshino_(blue_archive)'],
+      seriesMap: new Map([['lux_(league_of_legends)', 'league_of_legends']])
+    })
+    core.createCharacter('Hoshino', 'Blue Archive')
+    const hits = await core.searchCharacters('lux')
+    expect(hits.map((h) => [h.id, h.name, h.series])).toEqual([
+      [0, 'Lux', 'League Of Legends'],
+      [0, 'Luxu', 'Blue Archive'],
+      [0, 'Lux (Star Guardian)', 'League Of Legends']
+    ])
+    expect((await core.searchCharacters('lux league')).map((h) => h.tag)).toEqual([
+      'lux_(league_of_legends)',
+      'lux_(star_guardian)_(league_of_legends)'
+    ])
+    const lux = await core.characterFromTag('lux_(league_of_legends)')
+    expect(lux).toMatchObject({ name: 'Lux', series: 'League Of Legends' })
+    expect(lux.id).toBeGreaterThan(0)
+    // now a library character, listed once
+    const again = await core.searchCharacters('lux')
+    expect(again[0]).toMatchObject({ id: lux.id, name: 'Lux' })
+    expect(again.filter((h) => h.name === 'Lux')).toHaveLength(1)
     core.close()
   })
 })

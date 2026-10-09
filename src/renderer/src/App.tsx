@@ -4,7 +4,9 @@ import { useStore } from './store'
 import type { View } from './store'
 import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon, CloseIcon } from './components/icons'
 import Library from './components/Library'
-import Placeholder from './components/Placeholder'
+import UnknownView from './components/UnknownView'
+import ManageView from './components/ManageView'
+import OrgView from './components/OrgView'
 import Review from './components/Review'
 import LearnView from './components/LearnView'
 import SettingsView from './components/SettingsView'
@@ -14,8 +16,31 @@ const NAV: [View, string, typeof PhotoLibraryIcon][] = [
   ['library', '라이브러리', PhotoLibraryIcon],
   ['review', '검토', FactCheckIcon],
   ['unknown', '미확인', HelpIcon],
-  ['characters', '캐릭터 학습', PersonIcon]
+  ['characters', '캐릭터', PersonIcon]
 ]
+
+// 캐릭터: 관리 / 학습 tabs (shown next to the page title).
+function CharactersView(): JSX.Element {
+  const tab = useStore((s) => s.charTab)
+  const setTab = useStore((s) => s.setCharTab)
+  const tabs = (
+    <div className="flat-group">
+      {(
+        [
+          ['manage', '관리'],
+          ['org', '소속'],
+          ['learn', '학습']
+        ] as const
+      ).map(([k, label]) => (
+        <button key={k} className={`mini ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+  if (tab === 'manage') return <ManageView tabs={tabs} />
+  return tab === 'org' ? <OrgView tabs={tabs} /> : <LearnView tabs={tabs} />
+}
 
 export default function App(): JSX.Element {
   const { view, setView, settings, load, onProgress, refreshLibrary, refreshModels, toast, dismissToast } = useStore()
@@ -78,8 +103,8 @@ export default function App(): JSX.Element {
       <main className="body">
         {view === 'library' && <Library />}
         {view === 'review' && <Review />}
-        {view === 'unknown' && <Placeholder title="미확인" phase={4} />}
-        {view === 'characters' && <LearnView />}
+        {view === 'unknown' && <UnknownView />}
+        {view === 'characters' && <CharactersView />}
         {view === 'settings' && <SettingsView />}
       </main>
       <ProgressBar />

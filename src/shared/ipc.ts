@@ -1,6 +1,11 @@
 import type {
   AppInfo,
   CharacterHit,
+  ClusterResult,
+  ManagedCharacter,
+  OrganizePlan,
+  OrgChart,
+  WikiLookupResult,
   GameOption,
   LearnedCharacter,
   LearnPlanInfo,
@@ -42,6 +47,7 @@ export const IPC = {
   setRating: 'review:rating',
   createCharacter: 'review:createCharacter',
   searchCharacters: 'review:search',
+  characterFromTag: 'review:fromTag',
   seriesNames: 'review:series',
   undo: 'review:undo',
   toast: 'app:toast',
@@ -51,7 +57,27 @@ export const IPC = {
   booruTags: 'learn:booruTags',
   learned: 'learn:list',
   forgetLearned: 'learn:forget',
-  games: 'learn:games'
+  games: 'learn:games',
+  organizePlan: 'organize:plan',
+  organize: 'organize:run',
+  characters: 'manage:characters',
+  affiliations: 'manage:affiliations',
+  renameCharacter: 'manage:rename',
+  setAliases: 'manage:aliases',
+  setSeries: 'manage:series',
+  setAffiliation: 'manage:affiliation',
+  mergeCharacters: 'manage:merge',
+  unknownClusters: 'unknown:clusters',
+  orgChart: 'org:chart',
+  addAffiliation: 'org:add',
+  renameAffiliation: 'org:rename',
+  deleteAffiliation: 'org:delete',
+  moveAffiliation: 'org:move',
+  placeCharacters: 'org:place',
+  setWiki: 'org:wiki',
+  applyAffiliations: 'org:apply',
+  wikiLookup: 'org:lookup',
+  openUrl: 'app:openUrl'
 } as const
 
 // Finished pipeline job summary (shown as a toast / status line).
@@ -91,6 +117,8 @@ export interface Api {
   setRating: (imageIds: number[], rating: Exclude<Rating, 'unknown'>) => Promise<void>
   createCharacter: (name: string, series: string) => Promise<number>
   searchCharacters: (q: string) => Promise<CharacterHit[]>
+  // A model-known character (hit with id 0) → created in the library.
+  characterFromTag: (tag: string) => Promise<CharacterHit>
   seriesNames: () => Promise<string[]>
   undo: () => Promise<UndoResult>
   onToast: (cb: (t: JobSummary) => void) => () => void
@@ -102,4 +130,27 @@ export interface Api {
   learned: () => Promise<LearnedCharacter[]>
   forgetLearned: (characterId: number) => Promise<void>
   games: () => Promise<GameOption[]>
+  // organizing + management (Phase 4) — edits are single undo steps
+  organizePlan: () => Promise<OrganizePlan>
+  organize: () => Promise<JobSummary>
+  characters: () => Promise<ManagedCharacter[]>
+  affiliations: (series: string) => Promise<string[]>
+  renameCharacter: (id: number, name: string) => Promise<void>
+  setAliases: (id: number, aliases: string[]) => Promise<void>
+  setSeries: (ids: number[], series: string) => Promise<void>
+  setAffiliation: (ids: number[], name: string | null) => Promise<void>
+  mergeCharacters: (from: number[], into: number) => Promise<void>
+  unknownClusters: () => Promise<ClusterResult>
+  // 소속 조직도 — edits are single undo steps
+  orgChart: (series: string) => Promise<OrgChart>
+  addAffiliation: (series: string, name: string, parentId: number | null) => Promise<number>
+  renameAffiliation: (id: number, name: string) => Promise<void>
+  deleteAffiliation: (id: number) => Promise<void>
+  moveAffiliation: (id: number, parentId: number | null, index?: number) => Promise<void>
+  placeCharacters: (ids: number[], affiliationId: number | null) => Promise<void>
+  setWiki: (series: string, wiki: string | null) => Promise<void>
+  applyAffiliations: (series: string, items: { characterId: number; path: string[] }[]) => Promise<number>
+  // Ask the game's wiki by character name (default: characters without one).
+  wikiLookup: (series: string, ids?: number[]) => Promise<WikiLookupResult>
+  openUrl: (url: string) => Promise<void>
 }

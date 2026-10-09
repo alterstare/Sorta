@@ -9,11 +9,23 @@ import type {
   ModelInfo,
   ProgressEvent,
   Rating,
-  Settings
+  Settings,
+  WikiSuggestion
 } from '../../shared/types'
 
 export type View = 'library' | 'review' | 'unknown' | 'characters' | 'settings'
 export type ThumbSize = 's' | 'm' | 'l'
+export type CharTab = 'manage' | 'org' | 'learn'
+// One wiki suggestion as the user edits it: which option, applied or not.
+export type WikiRow = WikiSuggestion & { pick: number; on: boolean }
+// A wiki lookup outlives the 소속 tab (it can take minutes): kept here until
+// applied or closed.
+export interface OrgLookup {
+  series: string
+  running: boolean
+  wiki?: string
+  rows?: WikiRow[]
+}
 
 interface State {
   view: View
@@ -32,6 +44,15 @@ interface State {
   libraryVersion: number // bumped on every library refresh (views re-query)
   selected: Set<number> // multi-selected image ids in the grid
   setSelected: (s: Set<number>) => void
+  // Screen state that must survive leaving a view (results of slow jobs,
+  // positions, selections) — see useKept.
+  kept: Record<string, unknown>
+  charTab: CharTab
+  setCharTab: (t: CharTab) => void
+  orgLookup: OrgLookup | null
+  startOrgLookup: (series: string, ids?: number[]) => Promise<void>
+  setOrgRows: (rows: WikiRow[]) => void
+  clearOrgLookup: () => void
   undo: () => Promise<void>
   setView: (v: View) => void
   setThumbSize: (s: ThumbSize) => void
@@ -65,9 +86,31 @@ export const useStore = create<State>((set, get) => ({
   libraryVersion: 0,
   selected: new Set(),
   setSelected: (selected) => set({ selected }),
+  kept: {},
+  charTab: 'manage',
+  setCharTab: (charTab) => set({ charTab }),
+  orgLookup: null,
+  startOrgLookup: async (series, ids) => {
+    set({ orgLookup: { series, running: true } })
+    try {
+      const r = await window.api.wikiLookup(series, ids)
+      const rows = r.suggestions.map((s) => ({ ...s, pick: 0, on: s.path.length > 0 }))
+      set({ orgLookup: { series, running: false, wiki: r.wiki, rows } })
+      const n = rows.filter((x) => x.on).length
+      get().showToast({
+        ok: true,
+        message: `위키 조회 완료: ${rows.length}명 중 ${n}명 소속 후보 · 캐릭터 → 소속 탭에서 확인하고 적용하세요`
+      })
+    } catch (e) {
+      set({ orgLookup: null })
+      get().showToast({ ok: false, message: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+    }
+  },
+  setOrgRows: (rows) => set((s) => (s.orgLookup ? { orgLookup: { ...s.orgLookup, rows } } : {})),
+  clearOrgLookup: () => set({ orgLookup: null }),
   undo: async () => {
     const r = await window.api.undo()
-    get().showToast({ ok: true, message: r.label ? `되돌림: ${r.label}` : '되돌릴 작업이 없습니다.' })
+    get().showToast({ ok: true, message: r.label ? `되돌리기 완료: ${r.label}` : '되돌릴 작업이 없습니다.' })
   },
   setView: (view) => set({ view }),
   setThumbSize: (thumbSize) => set({ thumbSize }),

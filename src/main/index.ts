@@ -1,6 +1,7 @@
 // Electron shell for the standalone app: window, data folder, image protocol,
 // IPC wiring. All sorting logic lives in ../core.
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from 'electron'
+import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { SortaCore, CancelledError } from '../core'
@@ -89,6 +90,14 @@ function classifyJob(): Promise<JobSummary> {
 async function redecideJob(): Promise<void> {
   const r = await summarize(core.runRedecide().done, () => '')
   if (!r.ok) win?.webContents.send(IPC.toast, { ok: false, message: `기준 다시 적용 실패: ${r.message}` })
+  void reorganizeJob()
+}
+
+// Organized images follow classification changes (moved to their new folder).
+async function reorganizeJob(): Promise<void> {
+  if (!core.settings().organizeDir) return
+  const r = await summarize(core.runReorganize().done, (x) => (x.moved ? `정리 폴더 갱신: ${x.moved}장 이동` : ''))
+  if (r.message) win?.webContents.send(IPC.toast, r)
 }
 
 // Embed / rebuild references / compare with learned characters. Coalesced:
@@ -98,10 +107,12 @@ function learnRefreshSoon(ms = 2500): void {
   if (refreshTimer) clearTimeout(refreshTimer)
   refreshTimer = setTimeout(() => void learnRefreshJob(), ms)
 }
-function learnRefreshJob(): Promise<JobSummary> {
-  return summarize(core.runLearnRefresh().done, (r) =>
-    r === null ? '캐릭터 학습 모델이 없습니다. 설정 → 모델에서 받으세요.' : `학습한 캐릭터와 비교 완료 (참고 그림 ${r.refs}장)`
+async function learnRefreshJob(): Promise<JobSummary> {
+  const r = await summarize(core.runLearnRefresh().done, (x) =>
+    x === null ? '캐릭터 학습 모델이 없습니다. 설정 → 모델에서 받으세요.' : `학습한 캐릭터와 비교 완료 (참고 그림 ${x.refs}장)`
   )
+  void reorganizeJob() // decisions may have changed
+  return r
 }
 
 function assistJob(): Promise<JobSummary> {
@@ -114,6 +125,50 @@ function afterModelChange(id: ModelId): void {
   if (id === 'wd') void core.downloadModel('series').done.then(() => redecideJob()).catch(() => {})
   if (id === 'series' || id === 'pixai') void redecideJob()
   if ((id === 'pixai' || id === 'camie') && core.settings().assistMode !== 'none') void assistJob()
+}
+
+// Import new files, then classify when a model is installed.
+async function importJob(): Promise<JobSummary> {
+  const imp = await summarize(core.runImport().done, (r) => {
+    const parts = [`${r.added}장 추가`]
+    if (r.moved) parts.push(`${r.moved}장 위치 갱신`)
+    if (r.skipped) parts.push(`중복 ${r.skipped}장 제외`)
+    if (r.failed.length) parts.push(`${r.failed.length}장 실패`)
+    return parts.join(', ')
+  })
+  if (!imp.ok) return imp
+  const models = await core.models()
+  if (!models.find((x) => x.id === 'wd')?.installed) return { ok: true, message: `${imp.message} · 모델이 없어 분류는 건너뛰었습니다` }
+  const cls = await classifyJob()
+  return { ok: cls.ok, message: `${imp.message} · ${cls.message}` }
+}
+
+// 감시 폴더: new files in the source folders are imported (→ classify →
+// learned-character check → organized images follow). Bursts are coalesced.
+let watchers: FSWatcher[] = []
+let watchTimer: NodeJS.Timeout | null = null
+function restartWatch(): void {
+  for (const w of watchers) w.close()
+  watchers = []
+  const s = core.settings()
+  if (!s.watch) return
+  const skip = [s.organizeDir, core.paths.thumbsDir].filter(Boolean)
+  for (const dir of s.sourceDirs) {
+    try {
+      const w = watch(dir, { recursive: true }, (_ev, name) => {
+        if (name && skip.some((r) => isInside(join(dir, name.toString()), r))) return
+        if (watchTimer) clearTimeout(watchTimer)
+        watchTimer = setTimeout(() => {
+          watchTimer = null
+          void importJob().then((r) => win?.webContents.send(IPC.toast, { ...r, message: `감시 폴더: ${r.message}` }))
+        }, 3000)
+      })
+      w.on('error', () => w.close())
+      watchers.push(w)
+    } catch {
+      // folder missing — skipped until the settings change
+    }
+  }
 }
 
 function registerIpc(): void {
@@ -132,6 +187,8 @@ function registerIpc(): void {
     if (patch.thresholds || patch.ignoredCharacterTags || patch.assistMode) void redecideJob()
     // Assist turned on → ask it about the images the main tagger left open.
     if (patch.assistMode && patch.assistMode !== 'none') void assistJob()
+    if ('watch' in patch || patch.sourceDirs || 'organizeDir' in patch) restartWatch()
+    if (('splitByRating' in patch || 'moveAuto' in patch) && !patch.thresholds) void reorganizeJob()
     return s
   })
   ipcMain.handle(IPC.cancelJob, (_e, id: number) => core.queue.cancel(id))
@@ -139,20 +196,14 @@ function registerIpc(): void {
     const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle(IPC.runImport, async () => {
-    const imp = await summarize(core.runImport().done, (r) => {
-      const parts = [`${r.added}장 추가`]
-      if (r.moved) parts.push(`${r.moved}장 위치 갱신`)
-      if (r.skipped) parts.push(`${r.skipped}장 중복 건너뜀`)
-      if (r.failed.length) parts.push(`${r.failed.length}장 실패`)
-      return parts.join(', ')
-    })
-    if (!imp.ok) return imp
-    const models = await core.models()
-    if (!models.find((x) => x.id === 'wd')?.installed) return { ok: true, message: `${imp.message} · 모델이 없어 분류는 건너뜀` }
-    const cls = await classifyJob()
-    return { ok: cls.ok, message: `${imp.message} · ${cls.message}` }
-  })
+  ipcMain.handle(IPC.runImport, () => importJob())
+  ipcMain.handle(IPC.organizePlan, () => core.organizePlan())
+  ipcMain.handle(IPC.organize, () =>
+    summarize(core.runOrganize().done, (r) => `${r.moved}장 정리${r.failed.length ? `, ${r.failed.length}장 실패` : ''} · Ctrl+Z로 되돌리기`)
+  )
+  ipcMain.handle(IPC.characters, () => core.characters())
+  ipcMain.handle(IPC.affiliations, (_e, s: string) => core.affiliations(s))
+  ipcMain.handle(IPC.unknownClusters, () => core.unknownClusters())
   ipcMain.handle(IPC.runClassify, () => classifyJob())
   ipcMain.handle(IPC.reclassifyAll, () => {
     core.markAllForReclassify()
@@ -182,12 +233,31 @@ function registerIpc(): void {
       return r
     }
   ipcMain.handle(IPC.reviewQueue, (_e, k: ReviewKind) => core.reviewQueue(k))
+  ipcMain.handle(IPC.orgChart, (_e, s: string) => core.orgChart(s))
+  ipcMain.handle(IPC.addAffiliation, mutate((s: string, n: string, p: number | null) => core.addAffiliation(s, n, p)))
+  ipcMain.handle(IPC.renameAffiliation, mutate((id: number, n: string) => core.renameAffiliation(id, n)))
+  ipcMain.handle(IPC.deleteAffiliation, mutate((id: number) => core.deleteAffiliation(id)))
+  ipcMain.handle(IPC.moveAffiliation, mutate((id: number, p: number | null, i?: number) => core.moveAffiliation(id, p, i)))
+  ipcMain.handle(IPC.placeCharacters, mutate((ids: number[], a: number | null) => core.placeCharacters(ids, a)))
+  ipcMain.handle(IPC.setWiki, mutate((s: string, w: string | null) => core.setWiki(s, w)))
+  ipcMain.handle(IPC.applyAffiliations, mutate((s: string, items: { characterId: number; path: string[] }[]) => core.applyAffiliations(s, items)))
+  ipcMain.handle(IPC.wikiLookup, (_e, s: string, ids?: number[]) => core.wikiLookup(s, ids).done)
+  // Wiki pages open in the user's browser (https only).
+  ipcMain.handle(IPC.openUrl, (_e, u: string) => {
+    if (/^https:\/\//.test(u)) void shell.openExternal(u)
+  })
+  ipcMain.handle(IPC.renameCharacter, mutate((id: number, n: string) => core.renameCharacter(id, n)))
+  ipcMain.handle(IPC.setAliases, mutate((id: number, a: string[]) => core.setAliases(id, a)))
+  ipcMain.handle(IPC.setSeries, mutate((ids: number[], s: string) => core.setSeries(ids, s)))
+  ipcMain.handle(IPC.setAffiliation, mutate((ids: number[], n: string | null) => core.setAffiliation(ids, n)))
+  ipcMain.handle(IPC.mergeCharacters, mutate((f: number[], i: number) => core.mergeCharacters(f, i)))
   ipcMain.handle(IPC.confirmCharacters, mutate((i: number[], c: number[]) => core.confirmCharacters(i, c)))
   ipcMain.handle(IPC.addCharacter, mutate((i: number, c: number) => core.addCharacter(i, c)))
   ipcMain.handle(IPC.markOther, mutate((i: number[]) => core.markOther(i)))
   ipcMain.handle(IPC.setRating, mutate((i: number[], r: Exclude<Rating, 'unknown'>) => core.setRating(i, r)))
   ipcMain.handle(IPC.createCharacter, (_e, n: string, s: string) => core.createCharacter(n, s))
   ipcMain.handle(IPC.searchCharacters, (_e, q: string) => core.searchCharacters(q))
+  ipcMain.handle(IPC.characterFromTag, (_e, t: string) => core.characterFromTag(t))
   ipcMain.handle(IPC.seriesNames, () => core.seriesNames())
   ipcMain.handle(IPC.undo, async () => {
     const r = await core.undo()
@@ -201,7 +271,7 @@ function registerIpc(): void {
     const r = await summarize(core.runLearn(tags).done, (x) =>
       x === null
         ? '캐릭터 학습 모델이 없습니다. 설정 → 모델에서 받으세요.'
-        : `${x.characters}명 학습 (참고 그림 ${x.refs}장)${x.skipped.length ? ` · 그림 부족으로 ${x.skipped.length}명 건너뜀` : ''}${x.failed.length ? ` · 접속 문제로 ${x.failed.length}명 실패 (다시 학습하면 이어서 받음)` : ''}`
+        : `${x.characters}명 학습 (참고 그림 ${x.refs}장)${x.skipped.length ? ` · 그림 부족으로 ${x.skipped.length}명 제외` : ''}${x.failed.length ? ` · 접속 문제로 ${x.failed.length}명 실패 (다시 학습하면 이어서 받습니다)` : ''}`
     )
     if (r.ok) void learnRefreshJob()
     return r
@@ -229,6 +299,7 @@ else {
     handleImages()
     registerIpc()
     createWindow()
+    restartWatch()
     // Results were reset for a pipeline fix → re-classify in the background
     // (progress shows in the status bar; cancellable).
     void core.models().then(async (m) => {
@@ -243,6 +314,7 @@ else {
     })
   })
   app.on('window-all-closed', () => {
+    for (const w of watchers) w.close()
     core?.close()
     app.quit()
   })

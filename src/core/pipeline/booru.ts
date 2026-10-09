@@ -67,7 +67,7 @@ async function getJson<T>(src: BooruSource, path: string, signal?: AbortSignal):
       await sleep(RETRY_WAITS[attempt], signal)
       continue
     }
-    throw new Error(`${new URL(src.base).hostname} ${res.status}${res.status === 429 ? ' (요청이 너무 많음)' : ''}`)
+    throw new Error(`${new URL(src.base).hostname} ${res.status}${res.status === 429 ? ' (요청 과다)' : ''}`)
   }
 }
 

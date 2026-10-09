@@ -99,7 +99,7 @@ export function addCharacter(db: Db, log: ActionLog, imageId: number, characterI
 
 // 캐릭터 아님 (→ 기타 when organizing).
 export function markOther(db: Db, log: ActionLog, imageIds: number[]): void {
-  edit(db, log, imageIds, '캐릭터 아님', () => {
+  edit(db, log, imageIds, '캐릭터 아닌 그림으로 지정', () => {
     const del = db.prepare('DELETE FROM image_characters WHERE image_id = ?')
     for (const id of imageIds) {
       del.run(id)

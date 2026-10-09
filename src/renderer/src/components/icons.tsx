@@ -73,3 +73,12 @@ export const EditIcon = mkIcon(
 export const PersonAddIcon = mkIcon(
   'M18 14v-3h-3V9h3V6h2v3h3v2h-3v3zM6.175 10.825Q5 9.65 5 8t1.175-2.825T9 4t2.825 1.175T13 8t-1.175 2.825T9 12t-2.825-1.175M1 20v-2.8q0-.85.438-1.562T2.6 14.55q1.55-.775 3.15-1.162T9 13t3.25.388t3.15 1.162q.725.375 1.163 1.088T17 17.2V20z'
 )
+export const DriveFileMoveIcon = mkIcon(
+  'M12.15 14l-1.6 1.6L12 17l4-4l-4-4l-1.45 1.4l1.6 1.6H8v2zM4 20q-.825 0-1.412-.587T2 18V6q0-.825.588-1.412T4 4h6l2 2h8q.825 0 1.413.588T22 8v10q0 .825-.587 1.413T20 20z'
+)
+export const MergeIcon = mkIcon(
+  'M6.4 20L5 18.6l5-5V5.825l-1.6 1.6L7 6l4-4l4 4l-1.4 1.425l-1.6-1.6v8.6zm11.2 0l-3.6-3.6l1.4-1.4l3.6 3.6z'
+)
+export const OpenInNewIcon = mkIcon(
+  'M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z'
+)

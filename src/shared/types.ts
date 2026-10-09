@@ -22,6 +22,7 @@ export interface Thresholds {
   knnCandidate: number // learned-character similarity ≥ this → candidate (CCIP same-character ≈ 0.64)
   knnAccept: number // learned-character similarity ≥ this (and clear of the runner-up) → auto-confirm
   knnMargin: number // best learned character must beat the second by this much to auto-confirm
+  clusterSimilarity: number // unknown images this alike form a group (미확인 묶음)
 }
 
 export interface Settings {
@@ -72,7 +73,7 @@ export type LibraryNode =
   | { type: 'pending' } // has a character awaiting review
   | { type: 'ratingReview' } // rating fell in a borderline band
   | { type: 'unknown' } // classified, no character found
-  | { type: 'other' } // marked "캐릭터 아님"
+  | { type: 'other' } // marked "캐릭터 아닌 그림"
   | { type: 'unclassified' } // imported, tagger not run yet
 
 export interface LibraryFilter {
@@ -128,10 +129,11 @@ export interface ModelInfo {
 export type ReviewKind = 'character' | 'rating'
 
 export interface CharacterHit {
-  id: number
+  id: number // 0 = not in the library yet: a character a tagger knows (see `tag`)
   name: string
   series: string
   n: number // images sorted under it
+  tag?: string // model-known character: created via characterFromTag when picked
 }
 
 export interface ReviewCandidate {
@@ -187,4 +189,81 @@ export interface LearnPlanInfo {
 export interface GameOption {
   tag: string // danbooru copyright tag, e.g. blue_archive
   name: string
+}
+
+// ---- organizing (Phase 4) ----
+
+export interface OrganizeMove {
+  id: number
+  from: string
+  to: string
+}
+
+export interface OrganizePlan {
+  moves: OrganizeMove[]
+  unsettled: number // still in review / unknown → stays put
+  already: number // already in the right folder
+  byFolder: { folder: string; n: number }[] // relative to the organize folder
+}
+
+export interface ManagedCharacter {
+  id: number
+  name: string
+  aliases: string[]
+  tag: string | null
+  parentId: number | null // outfit version of
+  seriesId: number
+  series: string
+  affiliation: string | null
+  images: number
+  refs: number // learning references
+}
+
+export interface UnknownCluster {
+  key: string // member image ids (stable while the group is unchanged)
+  images: { id: number; path: string; thumb: string | null; rating: Rating }[]
+  similarity: number // weakest member's best link
+}
+
+export interface ClusterResult {
+  clusters: UnknownCluster[]
+  loose: number // unknown images that look like no other
+  notEmbedded: number // not compared yet (learning model missing / pending)
+}
+
+// 소속 조직도 (Phase 4): nested affiliations of one game.
+export interface OrgNode {
+  id: number
+  name: string
+  aliases: string[] // earlier names (wiki answers in the old spelling still match)
+  parentId: number | null
+  order: number
+}
+export interface OrgCharacter {
+  id: number
+  name: string
+  affiliationId: number | null
+  images: number
+}
+export interface OrgChart {
+  series: string
+  wiki: string | null // Fandom domain, e.g. bluearchive.fandom.com
+  nodes: OrgNode[]
+  characters: OrgCharacter[] // base characters (outfit versions follow them)
+}
+
+// Affiliation found on the game's wiki for one character — shown for the
+// user to accept, never applied on its own.
+export interface WikiSuggestion {
+  characterId: number
+  name: string
+  page: string | null // wiki page title
+  url: string | null
+  path: string[] // suggested nesting, top first (e.g. Liyue › Wangsheng Funeral Parlor)
+  fields: { field: string; value: string }[] // everything affiliation-like on the page
+  error?: string
+}
+export interface WikiLookupResult {
+  wiki: string
+  suggestions: WikiSuggestion[]
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
+import { useKept } from '../keep'
 import type { ThumbSize } from '../store'
 import type { ImageItem, Settings } from '../../../shared/types'
 import { WarningIcon } from './icons'
@@ -29,7 +30,7 @@ export function safeMode(img: ImageItem, s: Settings | null): 'show' | 'blur' | 
 export function charLabel(img: ImageItem): string {
   const named = img.characters.filter((c) => c.name)
   if (named.length) return named.map((c) => c.name).join(', ')
-  if (img.kind === 'other') return '캐릭터 아님'
+  if (img.kind === 'other') return '캐릭터 아닌 그림'
   return img.characters.length ? '미확인' : '분류 전'
 }
 
@@ -50,10 +51,22 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  // New list → back to the top.
+  // Scroll position per list (filter): kept while away from the library and
+  // across background refreshes; another node / rating / search → top.
+  const filter = useStore((s) => s.filter)
+  const listKey = JSON.stringify(filter)
+  const [saved, setSaved] = useKept<{ key: string; top: number }>('grid.scroll', { key: '', top: 0 })
+  const topRef = useRef(0)
   useEffect(() => {
-    if (ref.current) ref.current.scrollTop = 0
-  }, [items])
+    const el = ref.current
+    if (!el) return
+    const top = saved.key === listKey ? saved.top : 0
+    el.scrollTop = top
+    topRef.current = el.scrollTop
+    setBox((b) => ({ ...b, top: el.scrollTop }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listKey])
+  useEffect(() => () => setSaved({ key: listKey, top: topRef.current }), [listKey, setSaved])
 
   const inner = Math.max(1, box.w - PAD * 2)
   const cols = Math.max(1, Math.floor((inner + GAP) / (CELL[size] + GAP)))
@@ -123,6 +136,7 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
       ref={ref}
       onScroll={(e) => {
         const top = e.currentTarget.scrollTop
+        topRef.current = top
         setBox((b) => (Math.abs(b.top - top) < rowH / 3 ? b : { ...b, top }))
       }}
     >

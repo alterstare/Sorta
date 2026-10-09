@@ -49,7 +49,7 @@ function ensureSeries(db: Db, name: string, seriesTag: string | null): number {
 
 // Game for a character tag: the character → game table, else its "(series)"
 // suffix, else 작품 미상.
-function seriesOf(tag: string, map?: Map<string, string>): { name: string; tag: string | null } {
+export function seriesOf(tag: string, map?: Map<string, string>): { name: string; tag: string | null } {
   const mapped = map?.get(tag)
   if (mapped) return { name: displayName(mapped), tag: mapped }
   const p = parseCharacterTag(tag)

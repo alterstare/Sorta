@@ -1,7 +1,7 @@
 // Left tree: 게임 → 캐릭터 with image counts, plus the status nodes.
-import { useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
+import { useKept } from '../keep'
 import type { LibraryNode } from '../../../shared/types'
 import { ArrowDownIcon, KeyboardArrowRightIcon } from './icons'
 
@@ -12,7 +12,7 @@ export default function Tree(): JSX.Element {
   const tree = useStore((s) => s.tree)
   const node = useStore((s) => s.filter.node)
   const setNode = useStore((s) => s.setNode)
-  const [closed, setClosed] = useState<Set<number>>(new Set())
+  const [closed, setClosed] = useKept<Set<number>>('tree.closed', new Set())
 
   const item = (n: LibraryNode, label: string, count: number, extra = ''): JSX.Element => (
     <button className={`tree-item ${extra} ${same(n, node) ? 'on' : ''}`} onClick={() => setNode(n)}>
@@ -65,7 +65,7 @@ export default function Tree(): JSX.Element {
       {item({ type: 'pending' }, '캐릭터 검토', c.pending)}
       {item({ type: 'ratingReview' }, '등급 확인', c.ratingReview)}
       {item({ type: 'unknown' }, '미확인', c.unknown)}
-      {item({ type: 'other' }, '캐릭터 아님', c.other)}
+      {item({ type: 'other' }, '캐릭터 아닌 그림', c.other)}
       {item({ type: 'unclassified' }, '분류 전', c.unclassified)}
     </aside>
   )

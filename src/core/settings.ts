@@ -8,7 +8,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sourceDirs: [],
   watch: false,
   organizeDir: '',
-  moveAuto: false,
+  moveAuto: true,
   splitByRating: false,
   safeR18: 'blur',
   safeSensitive: 'show',

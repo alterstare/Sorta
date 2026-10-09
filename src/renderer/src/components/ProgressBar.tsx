@@ -23,7 +23,7 @@ export default function ProgressBar(): JSX.Element {
           </button>
         </>
       ) : (
-        <span className="status-label idle">진행 중인 작업 없음</span>
+        <span className="status-label idle">진행 중인 작업이 없습니다</span>
       )}
     </footer>
   )

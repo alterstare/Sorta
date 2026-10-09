@@ -35,6 +35,7 @@ const api: Api = {
   setRating: (i, r) => ipcRenderer.invoke(IPC.setRating, i, r),
   createCharacter: (n, s) => ipcRenderer.invoke(IPC.createCharacter, n, s),
   searchCharacters: (q) => ipcRenderer.invoke(IPC.searchCharacters, q),
+  characterFromTag: (t) => ipcRenderer.invoke(IPC.characterFromTag, t),
   seriesNames: () => ipcRenderer.invoke(IPC.seriesNames),
   undo: () => ipcRenderer.invoke(IPC.undo),
   onToast: (cb) => on<JobSummary>(IPC.toast, cb),
@@ -44,7 +45,27 @@ const api: Api = {
   booruTags: (q) => ipcRenderer.invoke(IPC.booruTags, q),
   learned: () => ipcRenderer.invoke(IPC.learned),
   forgetLearned: (id) => ipcRenderer.invoke(IPC.forgetLearned, id),
-  games: () => ipcRenderer.invoke(IPC.games)
+  games: () => ipcRenderer.invoke(IPC.games),
+  organizePlan: () => ipcRenderer.invoke(IPC.organizePlan),
+  organize: () => ipcRenderer.invoke(IPC.organize),
+  characters: () => ipcRenderer.invoke(IPC.characters),
+  affiliations: (s) => ipcRenderer.invoke(IPC.affiliations, s),
+  renameCharacter: (id, n) => ipcRenderer.invoke(IPC.renameCharacter, id, n),
+  setAliases: (id, a) => ipcRenderer.invoke(IPC.setAliases, id, a),
+  setSeries: (ids, s) => ipcRenderer.invoke(IPC.setSeries, ids, s),
+  setAffiliation: (ids, n) => ipcRenderer.invoke(IPC.setAffiliation, ids, n),
+  mergeCharacters: (f, i) => ipcRenderer.invoke(IPC.mergeCharacters, f, i),
+  unknownClusters: () => ipcRenderer.invoke(IPC.unknownClusters),
+  orgChart: (s) => ipcRenderer.invoke(IPC.orgChart, s),
+  addAffiliation: (s, n, p) => ipcRenderer.invoke(IPC.addAffiliation, s, n, p),
+  renameAffiliation: (id, n) => ipcRenderer.invoke(IPC.renameAffiliation, id, n),
+  deleteAffiliation: (id) => ipcRenderer.invoke(IPC.deleteAffiliation, id),
+  moveAffiliation: (id, p, i) => ipcRenderer.invoke(IPC.moveAffiliation, id, p, i),
+  placeCharacters: (ids, a) => ipcRenderer.invoke(IPC.placeCharacters, ids, a),
+  setWiki: (s, w) => ipcRenderer.invoke(IPC.setWiki, s, w),
+  applyAffiliations: (s, items) => ipcRenderer.invoke(IPC.applyAffiliations, s, items),
+  wikiLookup: (s, ids) => ipcRenderer.invoke(IPC.wikiLookup, s, ids),
+  openUrl: (u) => ipcRenderer.invoke(IPC.openUrl, u)
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -37,9 +37,9 @@ export default function SelectionBar({ allIds }: { allIds: number[] }): JSX.Elem
         ))}
       </div>
       <div className="flat-group">
-        <button className="mini" onClick={() => void window.api.markOther(ids).then(() => done('캐릭터 아님'))}>
+        <button className="mini" onClick={() => void window.api.markOther(ids).then(() => done('캐릭터 아닌 그림으로 지정'))}>
           <PersonOffIcon />
-          캐릭터 아님
+          캐릭터 아닌 그림
         </button>
         <button className="mini" onClick={() => setSelected(new Set(allIds))}>
           전체 선택

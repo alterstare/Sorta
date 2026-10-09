@@ -24,7 +24,7 @@ const RATINGS: [Rating | 'all', string][] = [
 const SAFE: [SafeMode, string][] = [
   ['show', '표시'],
   ['blur', '블러'],
-  ['hide', '숨김']
+  ['hide', '숨기기']
 ]
 
 export default function Library(): JSX.Element {

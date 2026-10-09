@@ -1,6 +1,6 @@
 // 직접 입력 / 새 캐릭터: type a name (or alias / game) → pick from matches with
 // ↑↓ Enter; the last option creates a new character (asks for its game).
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { JSX, RefObject } from 'react'
 import type { CharacterHit } from '../../../shared/types'
 import { PersonAddIcon, SearchIcon } from './icons'
@@ -30,6 +30,11 @@ export default function CharacterPicker({
   const [series, setSeries] = useState('')
   const [allSeries, setAllSeries] = useState<string[]>([])
   const seriesRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  // Keyboard selection stays visible in the (scrolling) list.
+  useEffect(() => {
+    listRef.current?.querySelectorAll('.picker-opt')[sel]?.scrollIntoView({ block: 'nearest' })
+  }, [sel])
   const creating = !!newMode
 
   useEffect(() => {
@@ -53,8 +58,11 @@ export default function CharacterPicker({
   const options = q.trim() ? hits.length + 1 : 0 // + "새 캐릭터"
   const pick = (i: number): void => {
     if (i < hits.length) {
-      onPick(hits[i])
+      const h = hits[i]
       setQ('')
+      // A character only the model knows: create it, then pick it.
+      if (h.id === 0 && h.tag) void window.api.characterFromTag(h.tag).then(onPick)
+      else onPick(h)
     } else onNewModeChange?.(true)
   }
   const create = async (): Promise<void> => {
@@ -124,13 +132,21 @@ export default function CharacterPicker({
         </div>
       )}
       {!creating && options > 0 && (
-        <div className="picker-list">
+        <div className="picker-list" ref={listRef}>
           {hits.map((h, i) => (
-            <button key={h.id} className={`picker-opt ${i === sel ? 'sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => pick(i)}>
-              <span className="picker-name">{h.name}</span>
-              <span className="picker-series">{h.series}</span>
-              <span className="picker-n">{h.n}</span>
-            </button>
+            <Fragment key={h.id || h.tag}>
+              {h.id === 0 && (i === 0 || hits[i - 1].id !== 0) && <div className="picker-sec">모델이 아는 캐릭터 (아직 라이브러리에 없음)</div>}
+              <button
+                className={`picker-opt ${i === sel ? 'sel' : ''}`}
+                title={h.tag}
+                onMouseEnter={() => setSel(i)}
+                onClick={() => pick(i)}
+              >
+                <span className="picker-name">{h.name}</span>
+                <span className="picker-series">{h.series}</span>
+                <span className="picker-n">{h.id === 0 ? '' : h.n}</span>
+              </button>
+            </Fragment>
           ))}
           <button className={`picker-opt new ${sel === hits.length ? 'sel' : ''}`} onMouseEnter={() => setSel(hits.length)} onClick={() => pick(hits.length)}>
             <PersonAddIcon />

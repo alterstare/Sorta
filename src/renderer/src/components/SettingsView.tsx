@@ -2,9 +2,11 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
+import { useKeptScroll } from '../keep'
 import type { AssistMode, ModelId, SafeMode, Thresholds } from '../../../shared/types'
 import { AddIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, PlayIcon, RestartIcon } from './icons'
 import Stepper from './Stepper'
+import OrganizeCard from './OrganizeCard'
 import { DEFAULT_THRESHOLDS, DEFAULT_IGNORED } from '../../../shared/defaults'
 
 // [key, label, description, step, min, max]
@@ -17,14 +19,15 @@ const THRESHOLDS: [keyof Thresholds, string, string, number, number, number][] =
   ['ratingMargin', '등급 경계 여유', '기준 ± 이 값 안이면 더 엄격한 등급으로 두고 "등급 확인"에 표시.', 0.05, 0, 0.5],
   ['assistAccept', 'PixAI 단독 확정 점수', '기본 모델이 모르는 캐릭터를 PixAI가 이 값 이상으로 보면 확정합니다.', 0.05, 0.5, 1],
   ['agreeMin', '두 모델 일치 점수', '두 모델이 같은 캐릭터를 둘 다 이 값 이상으로 보면 확정합니다.', 0.05, 0.1, 1],
-  ['camieSoloMin', 'Camie 단독 후보 점수', 'Camie만 본 캐릭터는 이 값 이상일 때만 검토에 올립니다 (확정은 하지 않음).', 0.05, 0.25, 1],
+  ['camieSoloMin', 'Camie 단독 후보 점수', 'Camie만 본 캐릭터는 이 값 이상일 때만 검토에 올립니다 (확정은 하지 않습니다).', 0.05, 0.25, 1],
   ['knnCandidate', '학습 캐릭터 후보 유사도', '학습한 캐릭터와 이 값 이상 닮으면 후보로 올립니다 (같은 캐릭터 기준 약 0.64).', 0.01, 0.3, 1],
   ['knnAccept', '학습 캐릭터 확정 유사도', '학습한 캐릭터와 이 값 이상 닮고 2등과 충분히 차이 나면 확정합니다.', 0.01, 0.5, 1],
   ['knnMargin', '학습 캐릭터 1·2등 차이', '확정하려면 가장 닮은 캐릭터가 두 번째보다 이만큼 더 닮아야 합니다.', 0.01, 0, 0.5],
+  ['clusterSimilarity', '미확인 묶음 유사도', '미확인 그림끼리 이 값 이상 닮으면 한 묶음으로 보여줍니다.', 0.01, 0.5, 0.95],
   ['groupThreshold', '단체 폴더 인원', '같은 게임에서 이 인원 이상이면 단체 폴더로 (정리 단계에서 사용).', 1, 2, 20]
 ]
 const ASSIST: [AssistMode, string, ModelId[]][] = [
-  ['none', '사용 안 함', []],
+  ['none', '미사용', []],
   ['pixai', 'PixAI', ['pixai']],
   ['pixai+camie', 'PixAI + Camie', ['pixai', 'camie']]
 ]
@@ -32,11 +35,12 @@ const sameList = (a: string[], b: string[]): boolean => a.length === b.length &&
 const SAFE: [SafeMode, string][] = [
   ['show', '표시'],
   ['blur', '블러'],
-  ['hide', '숨김']
+  ['hide', '숨기기']
 ]
 const mb = (n: number): string => `${Math.round(n / 1024 / 1024)}MB`
 
 export default function SettingsView(): JSX.Element {
+  const pageRef = useKeptScroll<HTMLDivElement>('settings')
   const { settings, info, saveSettings, models, refreshModels, showToast, jobs, tree, refreshLibrary } = useStore()
   const [busy, setBusy] = useState<'import' | 'classify' | 'model' | null>(null)
   const [newTag, setNewTag] = useState('')
@@ -64,7 +68,7 @@ export default function SettingsView(): JSX.Element {
   }
 
   return (
-    <div className="page settings">
+    <div ref={pageRef} className="page settings">
       <h1>설정</h1>
 
       <section className="card">
@@ -103,7 +107,7 @@ export default function SettingsView(): JSX.Element {
         <div className="row">
           <div className="row-text">
             <div className="row-title">정리 폴더</div>
-            <div className="row-desc">분류가 확정된 원본을 옮길 폴더 (이동은 다음 단계에서 동작). 가져오기 대상에서 제외됩니다.</div>
+            <div className="row-desc">분류가 끝난 원본을 게임 · 캐릭터 폴더로 옮겨 정리합니다. 가져오기 대상에서 제외됩니다.</div>
             {settings.organizeDir && <div className="row-desc selectable">{settings.organizeDir}</div>}
           </div>
           <div className="flat-group">
@@ -111,6 +115,19 @@ export default function SettingsView(): JSX.Element {
               <FolderOpenIcon />
               {settings.organizeDir ? '변경' : '선택'}
             </button>
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">감시</div>
+            <div className="row-desc">원본 폴더에 새 그림이 생기면 자동으로 가져와 분류합니다.</div>
+          </div>
+          <div className="flat-group">
+            {[true, false].map((v) => (
+              <button key={String(v)} className={`mini ${settings.watch === v ? 'on' : ''}`} onClick={() => void saveSettings({ watch: v })}>
+                {v ? '켜기' : '끄기'}
+              </button>
+            ))}
           </div>
         </div>
         <div className="row">
@@ -149,6 +166,8 @@ export default function SettingsView(): JSX.Element {
         </div>
       </section>
 
+      <OrganizeCard />
+
       <section className="card">
         <h2>모델</h2>
         {(['wd', 'pixai', 'camie', 'ccip'] as const).map((id) => {
@@ -159,7 +178,7 @@ export default function SettingsView(): JSX.Element {
               <div className="row-text">
                 <div className="row-title">{m.label}</div>
                 <div className="row-desc">
-                  {m.installed ? `설치됨 · ${mb(m.bytes)}` : `${id === 'wd' ? '받아야 분류 기능을 쓸 수 있습니다' : '선택 설치'} · 약 ${mb(m.totalBytes)}`}
+                  {m.installed ? `설치 완료 · ${mb(m.bytes)}` : `${id === 'wd' ? '받아야 분류 기능을 쓸 수 있습니다' : '선택 설치'} · 약 ${mb(m.totalBytes)}`}
                   {' · '}
                   {m.license}
                   {m.note && <div className="row-warn">{m.note}</div>}
@@ -219,7 +238,7 @@ export default function SettingsView(): JSX.Element {
           <div className="flat-group">
             {[true, false].map((v) => (
               <button key={String(v)} className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`} onClick={() => void saveSettings({ allowWebLookup: v })}>
-                {v ? '허용' : '안 함'}
+                {v ? '허용' : '차단'}
               </button>
             ))}
           </div>
@@ -248,7 +267,7 @@ export default function SettingsView(): JSX.Element {
           <div className="flat-group">
             {[true, false].map((v) => (
               <button key={String(v)} className={`mini ${settings.learnSensitive === v ? 'on' : ''}`} onClick={() => void saveSettings({ learnSensitive: v })}>
-                {v ? '사용' : '안 함'}
+                {v ? '사용' : '미사용'}
               </button>
             ))}
           </div>
@@ -325,7 +344,7 @@ export default function SettingsView(): JSX.Element {
             </button>
           </div>
         </div>
-        <div className="row-desc">값을 바꾸면 이미 분류한 이미지에도 바로 다시 적용됩니다 (모델을 다시 돌리지 않음).</div>
+        <div className="row-desc">값을 바꾸면 이미 분류한 이미지에도 바로 다시 적용됩니다 (모델을 다시 돌리지 않습니다).</div>
         {THRESHOLDS.map(([k, label, desc, step, min, max]) => (
           <div className="row" key={k}>
             <div className="row-text">

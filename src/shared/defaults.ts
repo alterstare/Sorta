@@ -14,7 +14,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   camieSoloMin: 0.8,
   knnCandidate: 0.64,
   knnAccept: 0.75,
-  knnMargin: 0.1
+  knnMargin: 0.1,
+  clusterSimilarity: 0.72
 }
 
 // Character tags that are not "characters" for sorting (player avatar, mascots).

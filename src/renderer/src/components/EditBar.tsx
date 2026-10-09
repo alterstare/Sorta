@@ -30,12 +30,12 @@ export default function EditBar({ img }: { img: ImageItem }): JSX.Element {
             </button>
           </span>
         ))}
-        {sorted.length === 0 && <span className="edit-none">{img.kind === 'other' ? '캐릭터 아님' : '없음'}</span>}
+        {sorted.length === 0 && <span className="edit-none">{img.kind === 'other' ? '캐릭터 아닌 그림' : '미지정'}</span>}
         {hasAuto && (
           <div className="flat-group">
             <button className="mini" title="자동 분류 결과가 맞다고 확정" onClick={() => void window.api.confirmCharacters([img.id], ids)}>
               <CheckIcon />
-              맞음
+              확인
             </button>
           </div>
         )}
@@ -60,7 +60,7 @@ export default function EditBar({ img }: { img: ImageItem }): JSX.Element {
         <div className="flat-group">
           <button className={`mini ${img.kind === 'other' ? 'on' : ''}`} onClick={() => void window.api.markOther([img.id])}>
             <PersonOffIcon />
-            캐릭터 아님
+            캐릭터 아닌 그림
           </button>
         </div>
       </div>

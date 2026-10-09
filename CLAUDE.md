@@ -85,8 +85,9 @@ sorta/
 ## 4. 데이터 모델
 
 ```
-series        (id, name, aliases JSON, danbooru_copyright_tag NULL, created_at)
-affiliations  (id, series_id → series, name, aliases JSON)          -- 세부 소속 (학교, 동아리, 유닛 …)
+series        (id, name, aliases JSON, danbooru_copyright_tag NULL, wiki NULL, created_at)  -- wiki = Fandom 주소
+affiliations  (id, series_id → series, name, aliases JSON,          -- 세부 소속 (학교, 동아리, 유닛 …)
+               parent_id → affiliations NULL, sort_order)         -- 조직도: 학교 → 동아리처럼 중첩, 이름은 게임 안에서 고유
 characters    (id, series_id → series, affiliation_id → affiliations NULL,
                name, aliases JSON, danbooru_tag NULL, created_at)
 
@@ -169,9 +170,10 @@ settings      (key, value_json)
 
 ### 5.7 세부 소속
 - 소속은 그림이 아니라 **캐릭터 정보**다. 캐릭터에 소속을 한 번 지정하면 그 캐릭터 그림 전체에 적용된다.
-- 1차 구현은 게임 → 캐릭터 2단계. 소속은 다음 순서로 채운다:
+- 소속은 게임별 **조직도**(중첩 가능)로 관리한다: 추가·이름 변경(이전 이름은 별칭으로 유지)·삭제(하위는 한 단계 위로)·위치 변경(끌어서 다른 소속 아래로 / 순서 변경)·캐릭터 이동. 모두 되돌리기 가능.
+- 소속은 다음 순서로 채운다:
   1. 사용자가 직접 지정 (여러 캐릭터 일괄 지정 가능)
-  2. (선택, 설정에서 켬) 게임별 Fandom 위키 API에서 캐릭터 이름으로 소속 후보 조회 → 사용자 확인
+  2. (선택, 외부 조회 허용 시) 게임별 Fandom 위키 API(주소 자동 추정 또는 직접 입력)에서 캐릭터 이름으로 문서를 찾아 인포박스의 지역/학교 → 소속/동아리 필드를 경로 후보로 제시 → 사용자가 고른 것만 적용. 요청 1회/초
   3. (선택) LLM에 이름으로 질문해 후보 제시 → 반드시 사용자 확인
 - 나무위키 등 자동 수집이 막힌 사이트는 긁지 않는다. 대신 "문서 열기" 버튼으로 사용자가 직접 보게 한다.
 
@@ -183,8 +185,8 @@ settings      (key, value_json)
 
 | 그림 | 이동 위치 |
 |---|---|
-| 캐릭터 1명 | `게임/[소속/]캐릭터/` (소속 미지정이면 `게임/캐릭터/`) |
-| 여러 명, 모두 같은 소속 | `게임/소속/` |
+| 캐릭터 1명 | `게임/[상위 소속/…/소속/]캐릭터/` (소속 미지정이면 `게임/캐릭터/`) |
+| 여러 명, 모두 같은 소속 | `게임/소속/` (중첩 소속이면 모두가 공유하는 가장 깊은 소속) |
 | 여러 명, 같은 게임이지만 소속이 섞이거나 인원이 많음 (`group_threshold` 이상) | `게임/단체/` |
 | 여러 명, 서로 다른 게임 | `단체/` |
 | 캐릭터 아님 | `기타/` |

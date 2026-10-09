@@ -3,21 +3,23 @@
 // still missing) or one character. User-confirmed pictures are added as
 // references automatically.
 import { useEffect, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useStore } from '../store'
+import { useKept, useKeptScroll } from '../keep'
 import type { GameOption, LearnedCharacter, LearnPlanInfo } from '../../../shared/types'
 import { DeleteIcon, DownloadIcon, PlayIcon, RestartIcon, SearchIcon } from './icons'
 
-export default function LearnView(): JSX.Element {
+export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
+  const pageRef = useKeptScroll<HTMLDivElement>('learn')
   const { settings, saveSettings, models, refreshModels, showToast, jobs } = useStore()
-  const [games, setGames] = useState<GameOption[]>([])
-  const [game, setGame] = useState('')
-  const [plan, setPlan] = useState<LearnPlanInfo | null>(null)
-  const [planning, setPlanning] = useState(false)
+  const [games, setGames] = useKept<GameOption[]>('learn.games', [])
+  const [game, setGame] = useKept('learn.game', '')
+  const [plan, setPlan] = useKept<LearnPlanInfo | null>('learn.plan', null)
+  const [planning, setPlanning] = useKept('learn.planning', false)
   // 이격(복장 버전) 제외: skip outfit/version tags (name_(outfit)_(game)) when learning a game.
-  const [noOutfits, setNoOutfits] = useState(false)
-  const [learned, setLearned] = useState<LearnedCharacter[]>([])
-  const [q, setQ] = useState('')
+  const [noOutfits, setNoOutfits] = useKept('learn.noOutfits', false)
+  const [learned, setLearned] = useKept<LearnedCharacter[]>('learn.learned', [])
+  const [q, setQ] = useKept('learn.q', '')
   const [hits, setHits] = useState<{ name: string; post_count: number }[]>([])
   const running = Object.keys(jobs).length > 0
   const ccip = models.find((m) => m.id === 'ccip')
@@ -57,8 +59,11 @@ export default function LearnView(): JSX.Element {
 
   if (!settings) return <div className="page" />
   return (
-    <div className="page learn">
-      <h1>캐릭터 학습</h1>
+    <div ref={pageRef} className="page learn">
+      <div className="page-head">
+        <h1>캐릭터</h1>
+        {tabs}
+      </div>
       <p className="hint">
         태거 모델이 모르는 캐릭터를 Danbooru(차단 우회 내장) 또는 Safebooru의 참고 그림으로 학습합니다. 검토에서 직접 확정한 그림도 자동으로 참고 그림이
         됩니다.
@@ -71,7 +76,7 @@ export default function LearnView(): JSX.Element {
             <div className="row-text">
               <div className="row-title">{ccip?.label ?? '캐릭터 학습 모델'}</div>
               <div className="row-desc">
-                {ccip?.installed ? '설치됨' : `약 ${Math.round((ccip?.totalBytes ?? 0) / 1048576)}MB · ${ccip?.license ?? ''}`}
+                {ccip?.installed ? '설치 완료' : `약 ${Math.round((ccip?.totalBytes ?? 0) / 1048576)}MB · ${ccip?.license ?? ''}`}
               </div>
             </div>
             {!ccip?.installed && (
@@ -95,7 +100,7 @@ export default function LearnView(): JSX.Element {
             <div className="flat-group">
               {[true, false].map((v) => (
                 <button key={String(v)} className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`} onClick={() => void saveSettings({ allowWebLookup: v })}>
-                  {v ? '허용' : '안 함'}
+                  {v ? '허용' : '차단'}
                 </button>
               ))}
             </div>
@@ -136,8 +141,8 @@ export default function LearnView(): JSX.Element {
               <span>
                 새로 학습 <b>{planList.length}</b>명{outfitCount > 0 && ` (이격 ${noOutfits ? 0 : outfitCount}명 포함)`}
               </span>
-              <span>모델이 이미 앎 {plan.known}명</span>
-              <span>이미 학습함 {plan.learned}명</span>
+              <span>모델이 아는 캐릭터 {plan.known}명</span>
+              <span>학습 완료 {plan.learned}명</span>
               <span>그림 부족 {plan.tooFew}명</span>
               {plan.source && <span>출처 {plan.source}</span>}
             </div>

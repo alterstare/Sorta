@@ -1,9 +1,10 @@
 // 검토 대기열 (CLAUDE.md §7 Review): one image at a time, keyboard-first.
 //   1/2/3 후보 체크 · Enter 확정 (체크 없으면 1순위) · / 직접 입력 · N 새 캐릭터
-//   S 건너뛰기 · X 캐릭터 아님 · R 등급 순환 · ←/→ 이동 · Ctrl+Z 되돌리기 (App)
+//   S 건너뛰기 · X 캐릭터 아닌 그림 · R 등급 순환 · ←/→ 이동 · Ctrl+Z 되돌리기 (App)
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
+import { useKept } from '../keep'
 import type { Rating, ReviewItem, ReviewKind } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
 import type { PickedCharacter } from './CharacterPicker'
@@ -14,7 +15,7 @@ type R = Exclude<Rating, 'unknown'>
 const RATINGS: R[] = ['general', 'sensitive', 'r18']
 const RATING_DESC: Record<R, string> = {
   general: '누구나 볼 수 있는 그림',
-  sensitive: '노출이 있거나 선정적이지만 성인물은 아님 (수영복 등)',
+  sensitive: '노출이 있거나 선정적이지만 성인물은 아닌 그림 (수영복 등)',
   r18: '성인 전용'
 }
 
@@ -22,18 +23,21 @@ export default function Review(): JSX.Element {
   const tree = useStore((s) => s.tree)
   const showToast = useStore((s) => s.showToast)
   const libraryVersion = useStore((s) => s.libraryVersion)
-  const [kind, setKind] = useState<ReviewKind>('character')
-  const [items, setItems] = useState<ReviewItem[]>([])
-  const [index, setIndex] = useState(0)
-  const [checked, setChecked] = useState<Set<number>>(new Set())
-  const [extras, setExtras] = useState<PickedCharacter[]>([])
-  const [rating, setRating] = useState<R>('general')
+  const [kind, setKind] = useKept<ReviewKind>('review.kind', 'character')
+  const [items, setItems] = useKept<ReviewItem[]>('review.items', [])
+  const [index, setIndex] = useKept('review.index', 0)
+  // Choices for the shown image survive leaving the view (reset only when
+  // another image comes up).
+  const [choicesFor, setChoicesFor] = useKept<number | null>('review.choicesFor', null)
+  const [checked, setChecked] = useKept<Set<number>>('review.checked', new Set())
+  const [extras, setExtras] = useKept<PickedCharacter[]>('review.extras', [])
+  const [rating, setRating] = useKept<R>('review.rating', 'general')
   const [newMode, setNewMode] = useState(false)
   // Outfit candidates: 'replace' = the confirmed character is actually in this
   // outfit; 'both' = two outfits of the character in the picture.
-  const [outfit, setOutfit] = useState<Record<number, 'replace' | 'both'>>({})
+  const [outfit, setOutfit] = useKept<Record<number, 'replace' | 'both'>>('review.outfit', {})
   // Confirmed characters the user takes out (the model was wrong).
-  const [removed, setRemoved] = useState<Set<number>>(new Set())
+  const [removed, setRemoved] = useKept<Set<number>>('review.removed', new Set())
   const pickerRef = useRef<HTMLInputElement>(null)
   const item = items[Math.min(index, items.length - 1)] as ReviewItem | undefined
 
@@ -44,12 +48,15 @@ export default function Review(): JSX.Element {
   }, [load, libraryVersion])
   // Fresh choices for each image.
   useEffect(() => {
+    setNewMode(false)
+    if ((item?.id ?? null) === choicesFor) return // same image as before leaving the view
+    setChoicesFor(item?.id ?? null)
     setChecked(new Set())
     setExtras([])
     setOutfit({})
     setRemoved(new Set())
-    setNewMode(false)
     setRating(item && item.rating !== 'unknown' ? item.rating : 'general')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id])
 
   const toggle = (id: number): void =>
@@ -170,7 +177,7 @@ export default function Review(): JSX.Element {
         )}
         <span className="review-keys">
           {kind === 'character'
-            ? '1·2·3 고르기 · Enter 확정 · 0 없음 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · X 캐릭터 아님 · R 등급 · Ctrl+Z 되돌리기'
+            ? '1·2·3 고르기 · Enter 확정 · 0 추가 없이 확정 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · X 캐릭터 아닌 그림 · R 등급 · Ctrl+Z 되돌리기'
             : '1·2·3 등급 고르기 · Enter 확정 · S 건너뛰기 · Ctrl+Z 되돌리기'}
         </span>
       </div>
@@ -259,7 +266,7 @@ export default function Review(): JSX.Element {
                               >
                                 {m === 'replace'
                                   ? `이 복장으로 변경 (${c.relatedTo!.name} 빼기)`
-                                  : `둘 다 있음 (${c.relatedTo!.name} + ${c.name})`}
+                                  : `둘 다 포함 (${c.relatedTo!.name} + ${c.name})`}
                               </span>
                             ))}
                           </span>
@@ -354,7 +361,7 @@ export default function Review(): JSX.Element {
                         <kbd>Enter</kbd>
                       </button>
                       <button className="btn" onClick={() => void onlyConfirmed()}>
-                        없음 · {item.confirmed.map((c) => c.name).join(', ')}만
+                        {item.confirmed.map((c) => c.name).join(', ')}만 확정
                         <kbd>0</kbd>
                       </button>
                     </>
@@ -362,7 +369,7 @@ export default function Review(): JSX.Element {
                     <>
                       <button className="btn primary" onClick={() => void onlyConfirmed()}>
                         <CheckIcon />
-                        없음 · {item.confirmed.map((c) => c.name).join(', ')}만
+                        {item.confirmed.map((c) => c.name).join(', ')}만 확정
                         <kbd>Enter</kbd>
                       </button>
                       <div className="review-hint">함께 있는 캐릭터가 있으면 위에서 고르세요 (1·2·3)</div>
@@ -390,13 +397,13 @@ export default function Review(): JSX.Element {
                 {kind === 'character' && (
                   <button className="mini" onClick={() => void markOther()}>
                     <PersonOffIcon />
-                    캐릭터 아님
+                    캐릭터 아닌 그림
                   </button>
                 )}
                 <button
                   className="mini"
                   onClick={() =>
-                    void window.api.undo().then((r) => showToast({ ok: true, message: r.label ? `되돌림: ${r.label}` : '되돌릴 작업이 없습니다.' }))
+                    void window.api.undo().then((r) => showToast({ ok: true, message: r.label ? `되돌리기 완료: ${r.label}` : '되돌릴 작업이 없습니다.' }))
                   }
                 >
                   <UndoIcon />

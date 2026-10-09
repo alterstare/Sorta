@@ -4,6 +4,11 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import type {
   CharacterHit,
+  ClusterResult,
+  ManagedCharacter,
+  OrganizePlan,
+  OrgChart,
+  WikiLookupResult,
   GameOption,
   LearnedCharacter,
   LearnPlanInfo,
@@ -32,11 +37,20 @@ import { assistPending, classifyPending, redecideAll } from './pipeline/classify
 import type { ClassifyResult, DecideOptions } from './pipeline/classify'
 import { libraryTree, listImages } from './library'
 import * as review from './review'
+import * as organize from './organize'
+import * as manage from './manage'
+import { unknownClusters } from './cluster'
+import * as org from './org'
+import * as wiki from './pipeline/wiki'
+import type { JsonGet } from './pipeline/wiki'
 import * as booru from './pipeline/booru'
 import { stopTunnel } from './pipeline/booruNet'
 import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
 import type { LearnModels } from './pipeline/knn'
 import { displayName } from './pipeline/tags'
+import { buildVocab, searchVocab } from './pipeline/vocab'
+import type { VocabEntry } from './pipeline/vocab'
+import { ensureCharacter } from './pipeline/classify'
 
 // Bump when classification output changes meaning (forces a re-tag on start).
 // 2: tagger pre-processing fix (inputs were cropped/garbled).
@@ -61,6 +75,9 @@ export interface CoreOptions {
   assistFactory?: () => Promise<AssistTagger[]>
   learnFactory?: () => Promise<LearnModels>
   seriesMap?: Map<string, string>
+  wikiGet?: JsonGet // tests answer wiki requests
+  wikiGapMs?: number
+  vocabTags?: string[] // tests: what the taggers know
 }
 
 export class SortaCore {
@@ -96,6 +113,9 @@ export class SortaCore {
     this.db = openDb(this.paths.dbPath)
     this.log = new ActionLog(this.db)
     review.registerReviewUndo(this.log, this.db)
+    organize.registerOrganizeUndo(this.log, this.db)
+    manage.registerManageUndo(this.log, this.db)
+    org.registerOrgUndo(this.log, this.db)
     this.checkPipelineRev()
   }
 
@@ -166,6 +186,7 @@ export class SortaCore {
     this.tagger = null
     this.assist = null
     this.seriesMap = null
+    this.vocab = null
   }
 
   private async getTagger(): Promise<Tagger | null> {
@@ -275,8 +296,35 @@ export class SortaCore {
     return review.createCharacter(this.db, name, series)
   }
 
-  searchCharacters(q: string): CharacterHit[] {
-    return review.searchCharacters(this.db, q)
+  // Library characters first, then characters the taggers know but the
+  // library doesn't have yet (picking one creates it — characterFromTag).
+  async searchCharacters(q: string): Promise<CharacterHit[]> {
+    const own = review.searchCharacters(this.db, q)
+    const have = new Set(
+      (this.db.prepare('SELECT danbooru_tag AS t FROM characters WHERE danbooru_tag IS NOT NULL').all() as { t: string }[]).map((r) => r.t)
+    )
+    for (const t of this.settings().ignoredCharacterTags) have.add(t)
+    const more = searchVocab(await this.getVocab(), q, have).map((e) => ({ id: 0, name: e.name, series: e.series, n: 0, tag: e.tag }))
+    return [...own, ...more]
+  }
+
+  // A model-known character → a library character (created once, with its
+  // game from the character → game table; outfit versions link to the base).
+  async characterFromTag(tag: string): Promise<CharacterHit> {
+    const id = ensureCharacter(this.db, tag, await this.getSeriesMap())
+    const r = this.db
+      .prepare('SELECT c.name, s.name AS series FROM characters c JOIN series s ON s.id = c.series_id WHERE c.id = ?')
+      .get(id) as { name: string; series: string }
+    return { id, name: r.name, series: r.series, n: 0 }
+  }
+
+  private vocab: VocabEntry[] | null = null
+  private async getVocab(): Promise<VocabEntry[]> {
+    if (!this.vocab) {
+      const tags = this.opts.vocabTags ?? (await booru.knownVocab(this.paths.modelsDir, true, true))
+      this.vocab = buildVocab(tags, await this.getSeriesMap())
+    }
+    return this.vocab
   }
 
   seriesNames(): string[] {
@@ -393,6 +441,104 @@ export class SortaCore {
       out.set(r.t, r.name)
     for (const ip of new Set((await this.getSeriesMap()).values())) if (!out.has(ip)) out.set(ip, displayName(ip))
     return [...out].map(([tag, name]) => ({ tag, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  // ---- organizing (Phase 4) ----
+
+  organizePlan(): OrganizePlan {
+    return organize.planOrganize(this.db, this.settings())
+  }
+
+  // Move every settled image into the organize folder (one undo step).
+  runOrganize(): { id: number; done: Promise<{ moved: number; failed: { path: string; error: string }[] }> } {
+    return this.queue.add('폴더 정리', async (ctx) => {
+      const plan = organize.planOrganize(this.db, this.settings())
+      return organize.executeMoves(this.db, this.log, plan.moves, ctx)
+    })
+  }
+
+  // Images organized before follow their (changed) classification. Not an
+  // undo step of its own: undoing the classification moves them back again.
+  runReorganize(): { id: number; done: Promise<{ moved: number; failed: { path: string; error: string }[] }> } {
+    return this.queue.add('정리 폴더 갱신', async (ctx) => {
+      const plan = organize.planOrganize(this.db, this.settings(), true)
+      return organize.executeMoves(this.db, null, plan.moves, ctx, '정리 폴더 갱신')
+    })
+  }
+
+  // ---- character management (Phase 4; each change is one undo step) ----
+
+  characters(): ManagedCharacter[] {
+    return manage.listCharacters(this.db)
+  }
+  affiliations(series: string): string[] {
+    return manage.affiliationNames(this.db, series)
+  }
+  renameCharacter(id: number, name: string): void {
+    manage.renameCharacter(this.db, this.log, id, name)
+  }
+  setAliases(id: number, aliases: string[]): void {
+    manage.setAliases(this.db, this.log, id, aliases)
+  }
+  setSeries(ids: number[], series: string): void {
+    manage.setSeries(this.db, this.log, ids, series)
+  }
+  setAffiliation(ids: number[], name: string | null): void {
+    manage.setAffiliation(this.db, this.log, ids, name)
+  }
+  mergeCharacters(from: number[], into: number): void {
+    manage.mergeCharacters(this.db, this.log, from, into)
+  }
+
+  // ---- 소속 조직도 (each change is one undo step) ----
+
+  orgChart(series: string): OrgChart {
+    return org.orgChart(this.db, series)
+  }
+  addAffiliation(series: string, name: string, parentId: number | null): number {
+    return org.addAffiliation(this.db, this.log, series, name, parentId)
+  }
+  renameAffiliation(id: number, name: string): void {
+    org.renameAffiliation(this.db, this.log, id, name)
+  }
+  deleteAffiliation(id: number): void {
+    org.deleteAffiliation(this.db, this.log, id)
+  }
+  moveAffiliation(id: number, parentId: number | null, index?: number): void {
+    org.moveAffiliation(this.db, this.log, id, parentId, index)
+  }
+  placeCharacters(ids: number[], affiliationId: number | null): void {
+    org.placeCharacters(this.db, this.log, ids, affiliationId)
+  }
+  setWiki(series: string, w: string | null): void {
+    org.setWiki(this.db, this.log, series, w)
+  }
+  applyAffiliations(series: string, items: { characterId: number; path: string[] }[]): number {
+    return org.applyPaths(this.db, this.log, series, items)
+  }
+
+  // Ask the game's wiki (by character name) for affiliations. `ids` = which
+  // characters (default: the ones without an affiliation). Finds the wiki
+  // first when the game has none set.
+  wikiLookup(series: string, ids?: number[]): { id: number; done: Promise<WikiLookupResult> } {
+    return this.queue.add('위키에서 소속 찾기', async (ctx) => {
+      if (!this.settings().allowWebLookup) throw new Error('설정에서 "외부 조회"를 허용해야 위키를 찾을 수 있습니다')
+      const get = this.opts.wikiGet ?? wiki.fetchJson
+      const chart = org.orgChart(this.db, series)
+      let w = chart.wiki
+      if (!w) {
+        w = await wiki.findWiki(series, get, ctx.signal)
+        if (!w) throw new Error(`"${series}" 위키를 찾지 못했습니다. 조직도에서 위키 주소를 직접 넣어 주세요`)
+        this.db.prepare('UPDATE series SET wiki = ? WHERE name = ?').run(w, series)
+      }
+      const chars = chart.characters.filter((c) => (ids ? ids.includes(c.id) : c.affiliationId === null))
+      const suggestions = await wiki.lookupAll(w, chars, ctx, get, this.opts.wikiGapMs)
+      return { wiki: w, suggestions }
+    })
+  }
+
+  unknownClusters(): ClusterResult {
+    return unknownClusters(this.db, this.settings().thresholds.clusterSimilarity)
   }
 
   // ---- library ----

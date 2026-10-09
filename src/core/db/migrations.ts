@@ -138,6 +138,13 @@ export const MIGRATIONS: string[] = [
     learned_at INTEGER NOT NULL
   );
   ALTER TABLE images ADD COLUMN embedded_at INTEGER;
+  `,
+  // v6 — 소속 조직도: affiliations nest (school → club …) in a user-set order;
+  // each game remembers its wiki (Fandom domain) for affiliation lookups.
+  `
+  ALTER TABLE affiliations ADD COLUMN parent_id INTEGER REFERENCES affiliations(id) ON DELETE SET NULL;
+  ALTER TABLE affiliations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE series ADD COLUMN wiki TEXT;
   `
 ]
 
