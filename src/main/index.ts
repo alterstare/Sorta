@@ -1,13 +1,14 @@
 // Electron shell for the standalone app: window, data folder, image protocol,
 // IPC wiring. All sorting logic lives in ../core.
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell } from 'electron'
-import { watch, type FSWatcher } from 'fs'
+import { existsSync, watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { SortaCore, CancelledError } from '../core'
 import { isInside } from '../core/pipeline/scan'
 import { IPC } from '../shared/ipc'
-import type { JobSummary } from '../shared/ipc'
+import type { JobSummary, UpdateStatus } from '../shared/ipc'
+import electronUpdater from 'electron-updater'
 import type { LibraryFilter, ModelId, PackExportOptions, Rating, RatingPick, ReviewKind, Settings } from '../shared/types'
 
 let core: SortaCore
@@ -43,6 +44,10 @@ function handleImages(): void {
   })
 }
 
+// Window / taskbar icon: the multi-size .ico on Windows (each size drawn for
+// itself, so the title bar's 16–24 px icon stays clean), a PNG elsewhere.
+const DEV_ICON = join(__dirname, process.platform === 'win32' ? '../../build/icon.ico' : '../../build/icons/256x256.png')
+
 function createWindow(): void {
   Menu.setApplicationMenu(null)
   nativeTheme.themeSource = core.settings().theme
@@ -52,6 +57,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: core.settings().theme === 'dark' ? '#0b0d13' : '#f4f5f8',
+    ...(existsSync(DEV_ICON) ? { icon: DEV_ICON } : {}),
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -172,6 +178,49 @@ function restartWatch(): void {
   }
 }
 
+// 자동 업데이트 from GitHub Releases (publish config in electron-builder.yml).
+// Packaged builds only. Downloads in the background; installs on quit or when
+// the user picks "재시작해서 업데이트". Off in 설정 → no check, no download, and
+// a downloaded update is not installed on quit. NSIS (win) and AppImage (linux)
+// update themselves; zip / tar.gz don't.
+let updateStatus: UpdateStatus = { state: app.isPackaged ? 'idle' : 'dev' }
+let applyAutoUpdate: (on: boolean) => void = () => {}
+function sendUpdate(s: UpdateStatus): void {
+  updateStatus = s
+  win?.webContents.send(IPC.updateStatus, s)
+}
+function setupAutoUpdate(): void {
+  if (!app.isPackaged) return
+  const { autoUpdater } = electronUpdater
+  let checked = false
+  const check = (): void => {
+    sendUpdate({ state: 'checking' })
+    autoUpdater.checkForUpdates().catch((e) => sendUpdate({ state: 'error', error: String(e?.message ?? e) }))
+  }
+  applyAutoUpdate = (on) => {
+    autoUpdater.autoDownload = on
+    autoUpdater.autoInstallOnAppQuit = on
+    if (on && !checked) {
+      checked = true
+      check()
+    }
+  }
+  autoUpdater.on('update-available', (i) => sendUpdate({ state: 'available', version: i.version }))
+  autoUpdater.on('update-not-available', () => sendUpdate({ state: 'none' }))
+  autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'downloading', version: updateStatus.version, percent: Math.round(p.percent) }))
+  autoUpdater.on('update-downloaded', (i) => sendUpdate({ state: 'downloaded', version: i.version }))
+  autoUpdater.on('error', (e) => sendUpdate({ state: 'error', error: String(e?.message ?? e) }))
+  ipcMain.handle(IPC.checkUpdate, async () => {
+    if (updateStatus.state !== 'downloading' && updateStatus.state !== 'downloaded') {
+      autoUpdater.autoDownload = true // a manual check downloads even with auto-update off
+      check()
+    }
+    return updateStatus
+  })
+  ipcMain.on(IPC.installUpdate, () => autoUpdater.quitAndInstall())
+  applyAutoUpdate(core.settings().autoUpdate)
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC.appInfo, () => ({
     version: app.getVersion(),
@@ -189,6 +238,7 @@ function registerIpc(): void {
     // Assist turned on → ask it about the images the main tagger left open.
     if (patch.assistMode && patch.assistMode !== 'none') void assistJob()
     if ('watch' in patch || patch.sourceDirs || 'organizeDir' in patch) restartWatch()
+    if ('autoUpdate' in patch) applyAutoUpdate(s.autoUpdate)
     if (('splitByRating' in patch || 'moveAuto' in patch) && !patch.thresholds) void reorganizeJob()
     return s
   })
@@ -221,7 +271,7 @@ function registerIpc(): void {
     afterModelChange(id)
   })
   ipcMain.handle(IPC.runAssist, () => assistJob())
-  ipcMain.handle(IPC.tree, (_e, r?: RatingPick[]) => core.tree(r))
+  ipcMain.handle(IPC.tree, (_e, r?: RatingPick[], g?: number[]) => core.tree(r, g))
   // Collections change no classification: refresh the views only.
   const collect =
     <A extends unknown[], R>(fn: (...a: A) => R) =>
@@ -376,6 +426,8 @@ else {
     registerIpc()
     createWindow()
     restartWatch()
+    setupAutoUpdate()
+    if (!app.isPackaged) ipcMain.handle(IPC.checkUpdate, () => updateStatus)
     // Results were reset for a pipeline fix → re-classify in the background
     // (progress shows in the status bar; cancellable).
     void summarize(core.runFileStats().done, () => '') // images imported before sizes were kept

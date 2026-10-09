@@ -1,0 +1,38 @@
+name: Release
+
+# Push a version tag (e.g. v0.3.0) to build the Linux assets (AppImage is
+# auto-updatable; tar.gz is portable-only) into that version's GitHub Release.
+#
+# Windows is NOT built here any more (the hosted Windows runner was too slow):
+# it's built and uploaded locally BEFORE pushing the tag —
+#   npx electron-builder --win --publish always   (GH_TOKEN set)
+# which creates the draft release this job then adds the Linux files to.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # electron-builder needs write access to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build renderer/main
+        run: npm run build
+
+      - name: Build & publish (Linux)
+        run: npx electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

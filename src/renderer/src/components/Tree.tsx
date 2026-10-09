@@ -4,9 +4,13 @@ import { useStore } from '../store'
 import { useKept } from '../keep'
 import { useState } from 'react'
 import ContextMenu from './ContextMenu'
-import { AddIcon, DeleteIcon, EditIcon } from './icons'
+import { AddIcon, ContentCopyIcon, DeleteIcon, EditIcon, PersonOffIcon, RestartIcon } from './icons'
+import { copyText, setIgnored } from '../collect'
 import type { LibraryNode, TreeAffiliation, TreeCharacter } from '../../../shared/types'
 import { ArrowDownIcon, KeyboardArrowRightIcon } from './icons'
+
+// Selectors must not return a fresh [] each call (endless re-render).
+const NO_TAGS: string[] = []
 
 const same = (a: LibraryNode, b: LibraryNode): boolean =>
   a.type === b.type && ('id' in a ? a.id : 0) === ('id' in b ? b.id : 0)
@@ -17,6 +21,13 @@ export default function Tree(): JSX.Element {
   const setNode = useStore((s) => s.setNode)
   const [closed, setClosed] = useKept<Set<number>>('tree.closed', new Set())
   const [menu, setMenu] = useState<{ x: number; y: number; g: { id: number; name: string } | null } | null>(null)
+  // right-click on a character (or a 무시한 캐릭터 row)
+  const [charMenu, setCharMenu] = useState<{ x: number; y: number; name: string; tag: string | null } | null>(null)
+  const ignoredTags = useStore((s) => s.settings?.ignoredCharacterTags) ?? NO_TAGS
+  const openCharMenu = (e: React.MouseEvent, name: string, tag: string | null | undefined): void => {
+    e.preventDefault()
+    setCharMenu({ x: e.clientX, y: e.clientY, name, tag: tag ?? null })
+  }
   const showToast = useStore((s) => s.showToast)
 
   // count (shown): the second number is under the rating filter, when one is set.
@@ -51,9 +62,13 @@ export default function Tree(): JSX.Element {
   const charItems = (list: TreeCharacter[], depth: number): JSX.Element[] =>
     list.map((ch) => (
       <div key={ch.id}>
-        {item({ type: 'character', id: ch.id }, ch.name, ch.count, ch.shown, 'char', 34 + depth * 16)}
+        <div onContextMenu={(e) => openCharMenu(e, ch.name, ch.tag)}>
+          {item({ type: 'character', id: ch.id }, ch.name, ch.count, ch.shown, 'char', 34 + depth * 16)}
+        </div>
         {ch.children?.map((v) => (
-          <div key={v.id}>{item({ type: 'character', id: v.id }, v.name, v.count, v.shown, 'variant', 52 + depth * 16)}</div>
+          <div key={v.id} onContextMenu={(e) => openCharMenu(e, v.name, v.tag)}>
+            {item({ type: 'character', id: v.id }, v.name, v.count, v.shown, 'variant', 52 + depth * 16)}
+          </div>
         ))}
       </div>
     ))
@@ -141,6 +156,53 @@ export default function Tree(): JSX.Element {
       <div className="tree-sep" />
       {item({ type: 'dups' }, '중복 의심', tree.dups)}
       {item({ type: 'setAside' }, '따로 둔 중복', c.setAside, f?.setAside)}
+      {tree.ignored.length > 0 && (
+        <>
+          <div className="tree-sep" />
+          <div className="tree-row">
+            {caret(-1e9, !closed.has(-1e9))}
+            <span className="tree-head-label">무시한 캐릭터 {tree.ignored.length}</span>
+          </div>
+          {!closed.has(-1e9) &&
+            tree.ignored.map((g) => (
+              <div
+                key={g.tag}
+                className="tree-item ignored"
+                style={{ paddingLeft: 34 }}
+                title={`${g.tag} · 우클릭으로 무시 해제`}
+                onContextMenu={(e) => openCharMenu(e, g.name, g.tag)}
+              >
+                <span className="tree-label">{g.name}</span>
+                {g.series && <span className="tree-count">{g.series}</span>}
+              </div>
+            ))}
+        </>
+      )}
+      {charMenu && (
+        <ContextMenu
+          x={charMenu.x}
+          y={charMenu.y}
+          onClose={() => setCharMenu(null)}
+          items={[
+            { label: '캐릭터 이름 복사', icon: <ContentCopyIcon />, onClick: () => void copyText(charMenu.name, '이름 복사') },
+            {
+              label: charMenu.tag ? `캐릭터 태그 복사 (${charMenu.tag})` : '캐릭터 태그 복사 (태그 없음)',
+              icon: <ContentCopyIcon />,
+              disabled: !charMenu.tag,
+              onClick: () => void copyText(charMenu.tag!, '태그 복사')
+            },
+            charMenu.tag && ignoredTags.includes(charMenu.tag)
+              ? { label: '무시 해제', icon: <RestartIcon />, separator: true, onClick: () => void setIgnored(charMenu.tag!, false, charMenu.name) }
+              : {
+                  label: charMenu.tag ? '이 캐릭터 무시 (캐릭터로 치지 않기)' : '무시 (태그 없는 캐릭터는 무시할 수 없습니다)',
+                  icon: <PersonOffIcon />,
+                  separator: true,
+                  disabled: !charMenu.tag,
+                  onClick: () => void setIgnored(charMenu.tag!, true, charMenu.name)
+                }
+          ]}
+        />
+      )}
     </aside>
   )
 }

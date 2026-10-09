@@ -26,7 +26,7 @@ export default function DupView(): JSX.Element {
       setGroups(g)
       // The tree's count was unknown until this first check: refresh just the tree.
       const st = useStore.getState()
-      if (st.tree?.dups === null) useStore.setState({ tree: await window.api.tree(st.filter.ratings) })
+      if (st.tree?.dups === null) useStore.setState({ tree: await window.api.tree(st.filter.ratings, st.filter.groups) })
     })
   }, [libraryVersion, setGroups])
 

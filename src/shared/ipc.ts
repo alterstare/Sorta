@@ -70,6 +70,9 @@ export const IPC = {
   seriesNames: 'review:series',
   undo: 'review:undo',
   toast: 'app:toast',
+  updateStatus: 'update:status',
+  checkUpdate: 'update:check',
+  installUpdate: 'update:install',
   learnRefresh: 'learn:refresh',
   learnPlan: 'learn:plan',
   learn: 'learn:run',
@@ -123,7 +126,7 @@ export interface Api {
   downloadModel: (id: ModelId) => Promise<JobSummary>
   deleteModel: (id: ModelId) => Promise<void>
   runAssist: () => Promise<JobSummary>
-  tree: (ratings?: RatingPick[]) => Promise<LibraryTree>
+  tree: (ratings?: RatingPick[], groups?: number[]) => Promise<LibraryTree>
   // 즐겨찾기 · 평점 · 그룹 — each change is one undo step
   setFavorite: (ids: number[], on: boolean) => Promise<void>
   setStars: (ids: number[], stars: number) => Promise<void>
@@ -159,6 +162,10 @@ export interface Api {
   seriesNames: () => Promise<string[]>
   undo: () => Promise<UndoResult>
   onToast: (cb: (t: JobSummary) => void) => () => void
+  // 자동 업데이트 (packaged builds; GitHub Releases)
+  onUpdateStatus: (cb: (s: UpdateStatus) => void) => () => void
+  checkUpdate: () => Promise<UpdateStatus>
+  installUpdate: () => void // quit + install the downloaded update
   // character learning (Phase 3)
   learnRefresh: () => Promise<JobSummary>
   learnPlan: (seriesTag: string) => Promise<LearnPlanInfo>
@@ -190,4 +197,11 @@ export interface Api {
   // Ask the game's wiki by character name (default: characters without one).
   wikiLookup: (series: string, ids?: number[]) => Promise<WikiLookupResult>
   openUrl: (url: string) => Promise<void>
+}
+
+export interface UpdateStatus {
+  state: 'idle' | 'dev' | 'checking' | 'none' | 'available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  error?: string
 }

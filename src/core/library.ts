@@ -34,6 +34,13 @@ function affiliationCounts(db: Db, cond: string, parentOf: Map<number, number | 
 }
 
 // SQL condition on images alias `i` for a rating selection ('' = no filter).
+// Rating + group filter as one condition on `i` ('' = nothing filtered).
+export function filterClause(ratings: RatingPick[], groups: number[] = []): string {
+  const g = groups.filter((x) => Number.isInteger(x))
+  const gc = g.length ? `EXISTS (SELECT 1 FROM image_groups ig WHERE ig.image_id = i.id AND ig.group_id IN (${g.join(',')}))` : ''
+  return [ratingClause(ratings), gc].filter(Boolean).join(' AND ')
+}
+
 export function ratingClause(ratings: RatingPick[]): string {
   const r = ALL_RATINGS.filter((x) => ratings.includes(x))
   if (r.length === ALL_RATINGS.length) return ''
@@ -90,16 +97,16 @@ function treeCounts(db: Db, rc: string): {
   }
 }
 
-export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: number | null = null): LibraryTree {
+export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: number | null = null, groupFilter: number[] = [], ignoredTags: string[] = []): LibraryTree {
   const all = treeCounts(db, '')
-  const rc = ratingClause(ratings)
+  const rc = filterClause(ratings, groupFilter)
   const f = rc ? treeCounts(db, rc) : null
   const chars = db
     .prepare(
-      `SELECT s.id AS sid, s.name AS sname, c.id AS cid, c.name AS cname, c.parent_id AS pid
+      `SELECT s.id AS sid, s.name AS sname, c.id AS cid, c.name AS cname, c.parent_id AS pid, c.danbooru_tag AS tag
        FROM characters c JOIN series s ON s.id = c.series_id`
     )
-    .all() as { sid: number; sname: string; cid: number; cname: string; pid: number | null }[]
+    .all() as { sid: number; sname: string; cid: number; cname: string; pid: number | null; tag: string | null }[]
   const byId = new Map(chars.map((r) => [r.cid, r]))
   const affRows = db
     .prepare('SELECT id, series_id AS sid, name, parent_id AS parent FROM affiliations ORDER BY sort_order, id')
@@ -125,14 +132,14 @@ export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: n
       s = { id: r.sid, name: r.sname, count: all.series.get(r.sid) ?? 0, shown: shown('series', r.sid), affiliations: [], characters: [] }
       seriesMap.set(r.sid, s)
     }
-    const node = { id: r.cid, name: r.cname, count: n, shown: shown('root', r.cid), children: [] as LibraryTree['series'][number]['characters'] }
+    const node = { id: r.cid, name: r.cname, tag: r.tag, count: n, shown: shown('root', r.cid), children: [] as LibraryTree['series'][number]['characters'] }
     nodes.set(r.cid, node)
     s.characters.push(node)
   }
   for (const r of chars) {
     const n = all.own.get(r.cid) ?? 0
     if (r.pid === null || !n) continue
-    nodes.get(r.pid)?.children!.push({ id: r.cid, name: r.cname, count: n, shown: shown('own', r.cid) })
+    nodes.get(r.pid)?.children!.push({ id: r.cid, name: r.cname, tag: r.tag, count: n, shown: shown('own', r.cid) })
   }
   const series = [...seriesMap.values()].sort(sortByName)
   for (const s of series) {
@@ -168,7 +175,12 @@ export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: n
     count: all.groups.get(g.id) ?? 0,
     shown: shown('groups', g.id)
   }))
-  return { series, groups, counts: all.counts, shown: f?.counts, dups }
+  const byTag = new Map(chars.filter((c) => c.tag).map((c) => [c.tag!, c]))
+  const ignored = ignoredTags.map((tag) => {
+    const c = byTag.get(tag)
+    return { tag, name: c?.cname ?? tag, series: c?.sname ?? null }
+  })
+  return { series, groups, counts: all.counts, shown: f?.counts, dups, ignored }
 }
 
 const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p
@@ -213,7 +225,7 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
   } else if (n.type === 'other') where.push("i.kind = 'other'")
   else if (n.type === 'unclassified') where.push('i.classified_at IS NULL')
   where.push(n.type === 'setAside' ? 'i.set_aside = 1' : 'i.set_aside = 0')
-  const rc = ratingClause(f.ratings)
+  const rc = filterClause(f.ratings, f.groups)
   if (rc) where.push(rc)
   const q = f.q.trim().toLowerCase()
   if (q) {
@@ -251,14 +263,14 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
   if (rows.length) {
     const ic = db
       .prepare(
-        `SELECT ic.image_id AS iid, ic.character_id AS cid, c.name AS cname, s.name AS sname, ic.status, ic.confidence
+        `SELECT ic.image_id AS iid, ic.character_id AS cid, c.name AS cname, s.name AS sname, c.danbooru_tag AS tag, ic.status, ic.confidence
          FROM image_characters ic LEFT JOIN characters c ON c.id = ic.character_id
          LEFT JOIN series s ON s.id = c.series_id ORDER BY ic.id`
       )
-      .all() as { iid: number; cid: number | null; cname: string | null; sname: string | null; status: MatchStatus; confidence: number | null }[]
+      .all() as { iid: number; cid: number | null; cname: string | null; sname: string | null; tag: string | null; status: MatchStatus; confidence: number | null }[]
     for (const r of ic) {
       const arr = labels.get(r.iid) ?? []
-      arr.push({ id: r.cid, name: r.cname, series: r.sname, status: r.status, confidence: r.confidence })
+      arr.push({ id: r.cid, name: r.cname, series: r.sname, tag: r.tag, status: r.status, confidence: r.confidence })
       labels.set(r.iid, arr)
     }
     for (const g of db.prepare('SELECT image_id AS i, group_id AS g FROM image_groups').all() as { i: number; g: number }[]) {

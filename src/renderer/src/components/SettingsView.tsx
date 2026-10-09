@@ -14,8 +14,8 @@ const THRESHOLDS: [keyof Thresholds, string, string, number, number, number][] =
   ['autoAccept', '자동 확정 점수', '캐릭터 점수가 이 값 이상이면 그림에 있다고 보고 자동 확정합니다.', 0.05, 0.05, 1],
   ['candidateMin', '후보 최소 점수', '이 값 미만인 캐릭터 점수는 무시합니다. 모두 미만이면 미확인.', 0.05, 0, 1],
   ['reviewMin', '추가 후보 기준', '확정된 캐릭터가 있는 그림에서, 다른 후보는 이 값 이상일 때만 검토로 올립니다.', 0.05, 0, 1],
-  ['r18Threshold', 'R-18 기준', 'questionable + explicit 점수 합이 이 값 이상이면 R-18.', 0.05, 0.05, 1],
-  ['sensitiveThreshold', '민감 기준', 'sensitive 점수가 이 값 이상이면 민감.', 0.05, 0.05, 1],
+  ['r18Threshold', 'R-18 기준', 'explicit(성행위 · 노출) 점수가 이 값 이상이면 R-18.', 0.05, 0.05, 1],
+  ['sensitiveThreshold', '민감 기준', 'sensitive + questionable(수영복 · 속옷 · 반라 등) 점수 합이 이 값 이상이면 민감.', 0.05, 0.05, 1],
   ['ratingMargin', '등급 경계 여유', '기준 ± 이 값 안이면 더 엄격한 등급으로 두고 "등급 확인"에 표시.', 0.05, 0, 0.5],
   ['assistAccept', 'PixAI 단독 확정 점수', '기본 모델이 모르는 캐릭터를 PixAI가 이 값 이상으로 보면 확정합니다.', 0.05, 0.5, 1],
   ['agreeMin', '두 모델 일치 점수', '두 모델이 같은 캐릭터를 둘 다 이 값 이상으로 보면 확정합니다.', 0.05, 0.1, 1],
@@ -48,7 +48,7 @@ const mb = (n: number): string => `${Math.round(n / 1024 / 1024)}MB`
 
 export default function SettingsView(): JSX.Element {
   const pageRef = useKeptScroll<HTMLDivElement>('settings')
-  const { settings, info, saveSettings, models, refreshModels, showToast, jobs, tree, refreshLibrary } = useStore()
+  const { settings, info, saveSettings, models, refreshModels, showToast, jobs, tree, refreshLibrary, update } = useStore()
   const [busy, setBusy] = useState<'import' | 'classify' | 'model' | null>(null)
   const [newTag, setNewTag] = useState('')
   // 분류 기준: edits stay a draft until the settings screen is left (or 지금 적용).
@@ -464,6 +464,20 @@ export default function SettingsView(): JSX.Element {
           <div className="row-text">
             <div className="row-title">자동 업데이트</div>
             <div className="row-desc">새 버전이 나오면 받아 두었다가 다음 실행 때 적용합니다. 끄면 업데이트를 확인하지 않습니다.</div>
+            <div className="row-desc">
+              현재 버전 {info?.version}
+              {' · '}
+              {{
+                idle: '',
+                dev: '개발 실행 중이라 업데이트를 확인하지 않습니다',
+                checking: '확인 중…',
+                none: '최신 버전입니다',
+                available: `새 버전 ${update.version}을(를) 받습니다`,
+                downloading: `새 버전 ${update.version} 받는 중 ${update.percent ?? 0}%`,
+                downloaded: `새 버전 ${update.version} 준비 완료 · 재시작하면 적용됩니다`,
+                error: `확인 실패: ${update.error ?? ''}`
+              }[update.state]}
+            </div>
           </div>
           <div className="flat-group">
             {[true, false].map((v) => (
@@ -471,6 +485,21 @@ export default function SettingsView(): JSX.Element {
                 {v ? '켜기' : '끄기'}
               </button>
             ))}
+            {update.state === 'downloaded' ? (
+              <button className="mini" onClick={() => window.api.installUpdate()}>
+                <RestartIcon />
+                재시작해서 업데이트
+              </button>
+            ) : (
+              <button
+                className="mini"
+                disabled={update.state === 'dev' || update.state === 'checking' || update.state === 'downloading'}
+                onClick={() => void window.api.checkUpdate().then((u) => useStore.setState({ update: u }))}
+              >
+                <RestartIcon />
+                지금 확인
+              </button>
+            )}
           </div>
         </div>
       </section>

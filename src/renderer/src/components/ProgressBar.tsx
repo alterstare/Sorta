@@ -29,6 +29,23 @@ export default function ProgressBar(): JSX.Element {
       ) : (
         <span className="status-label idle">진행 중인 작업이 없습니다</span>
       )}
+      <UpdateBadge />
     </footer>
   )
+}
+
+// 자동 업데이트 상태 (right end of the status bar).
+function UpdateBadge(): JSX.Element | null {
+  const u = useStore((s) => s.update)
+  if (u.state === 'downloading') return <span className="status-update">업데이트 {u.version} 받는 중 {u.percent ?? 0}%</span>
+  if (u.state === 'downloaded')
+    return (
+      <span className="status-update ready">
+        새 버전 {u.version} 준비 완료
+        <button className="mini primary" onClick={() => window.api.installUpdate()}>
+          재시작해서 업데이트
+        </button>
+      </span>
+    )
+  return null
 }

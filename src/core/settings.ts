@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wheelNavigate: true,
   libRatings: ['general', 'sensitive', 'r18'],
   libRatingsPrev: null,
+  libGroups: [],
   libSort: 'date',
   libDir: 'desc',
   libLayout: 'grid',

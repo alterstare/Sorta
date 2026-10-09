@@ -8,7 +8,7 @@ import type { ImageItem } from '../../../shared/types'
 import ContextMenu from './ContextMenu'
 import type { MenuItem } from './ContextMenu'
 import { AddIcon, CheckIcon, ContentCopyIcon, FavoriteIcon, FolderOpenIcon, StarIcon } from './icons'
-import { characterNames, copyImage, copyNames, createGroup, setStars, toggleFavorite, toggleGroup } from '../collect'
+import { characterNames, characterTags, copyImage, copyNames, copyText, createGroup, setStars, toggleFavorite, toggleGroup } from '../collect'
 
 export function useImageMenu(items: ImageItem[]): {
   onContextMenu: (e: MouseEvent, img: ImageItem) => void
@@ -29,6 +29,7 @@ export function useImageMenu(items: ImageItem[]): {
   const fav = imgs.every((i) => i.favorite)
   const groups = useStore.getState().tree?.groups ?? []
   const names = characterNames(imgs)
+  const tags = characterTags(imgs)
   const items_: MenuItem[] = [
     { label: one ? '이미지 복사' : '이미지 복사 (한 장만 가능)', icon: <ContentCopyIcon />, disabled: !one, onClick: () => void copyImage(imgs[0]) },
     {
@@ -36,6 +37,12 @@ export function useImageMenu(items: ImageItem[]): {
       icon: <ContentCopyIcon />,
       disabled: !names,
       onClick: () => void copyNames(imgs)
+    },
+    {
+      label: tags ? `캐릭터 태그 복사 (${tags.length > 28 ? tags.slice(0, 28) + '…' : tags})` : '캐릭터 태그 복사',
+      icon: <ContentCopyIcon />,
+      disabled: !tags,
+      onClick: () => void copyText(tags, '태그 복사')
     },
     {
       label: fav ? '즐겨찾기 해제' : '즐겨찾기에 추가',

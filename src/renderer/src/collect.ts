@@ -61,6 +61,27 @@ export async function copyNames(imgs: ImageItem[]): Promise<void> {
   toast(true, `복사: ${s}`)
 }
 
+// Danbooru tags of the confirmed characters (for the 무시 목록 etc.), ", "-joined.
+export function characterTags(imgs: ImageItem[]): string {
+  const tags: string[] = []
+  for (const i of imgs) for (const c of i.characters) if (c.tag && (c.status === 'auto' || c.status === 'confirmed') && !tags.includes(c.tag)) tags.push(c.tag)
+  return tags.join(', ')
+}
+
+export async function copyText(s: string, what = '복사'): Promise<void> {
+  await navigator.clipboard.writeText(s)
+  toast(true, `${what}: ${s}`)
+}
+
+// 무시할 캐릭터 태그: add / remove one (re-applies the decisions, no model run).
+export async function setIgnored(tag: string, on: boolean, name = tag): Promise<void> {
+  const st = useStore.getState()
+  const cur = st.settings?.ignoredCharacterTags ?? []
+  if (on === cur.includes(tag)) return
+  await st.saveSettings({ ignoredCharacterTags: on ? [...cur, tag] : cur.filter((t) => t !== tag) })
+  toast(true, on ? `${name}: 이제 캐릭터로 치지 않습니다 (분류를 다시 적용합니다)` : `${name}: 무시를 해제했습니다 (분류를 다시 적용합니다)`)
+}
+
 export async function copyImage(img: ImageItem): Promise<void> {
   const ok = await window.api.copyImage(img.path)
   toast(ok, ok ? '이미지를 복사했습니다' : '이미지를 복사하지 못했습니다')

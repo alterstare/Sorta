@@ -11,7 +11,7 @@ let dir: string
 let src: string
 
 const tags = (chars: [string, number][], adult = 0): TagResult => ({
-  rating: { general: 1 - adult, sensitive: 0, questionable: adult / 2, explicit: adult / 2 },
+  rating: { general: 1 - adult, sensitive: 0, questionable: 0, explicit: adult },
   characters: chars.map(([tag, score]) => ({ tag, score })),
   general: []
 })
@@ -256,6 +256,10 @@ describe('library: rating filter counts, sorting, favorites / stars / groups', (
     expect(core.tree().counts.favorite).toBe(1)
     expect(core.tree().groups).toEqual([{ id: g, name: '최애', count: 2, shown: undefined }])
     expect(names({ node: { type: 'group', id: g } })).toEqual(['a2.png', 'b.png'])
+    // 그룹 filter: only pictures in the checked groups, counts in parentheses follow
+    expect(names({ groups: [g] })).toEqual(['a2.png', 'b.png'])
+    expect(names({ groups: [g], ratings: ['general'] })).toEqual(['b.png'])
+    expect(core.tree(['general', 'sensitive', 'r18'], [g]).shown?.all).toBe(2)
     expect(() => core.createGroup('최애')).toThrow()
     core.deleteGroup(g)
     expect(core.tree().groups).toHaveLength(0)

@@ -2819,3 +2819,118 @@ select.tag-input {
   opacity: 0.5;
   cursor: default;
 }
+
+/* brand logo */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+/* favorite / group pill without an outline */
+.seg {
+  border: none;
+  background: transparent;
+}
+.seg-btn + .seg-btn {
+  border-left: none;
+  position: relative;
+}
+.seg-btn + .seg-btn::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--line);
+}
+.seg-btn {
+  border-radius: 999px !important;
+}
+
+/* library toolbar: two rows */
+.toolbar.top {
+  padding-bottom: 4px;
+  border-bottom: none;
+}
+.toolbar.bottom {
+  padding-top: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.toolbar.bottom .tb-count {
+  margin-left: auto !important;
+}
+.toolbar.bottom .tb-count::before {
+  display: none;
+}
+
+/* 분류 실행: filled purple */
+.mini.primary,
+.flat-group .mini.primary:not(.on) {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  padding: 0 14px;
+}
+.mini.primary:hover:not(:disabled),
+.flat-group .mini.primary:not(.on):hover:not(:disabled) {
+  background: var(--accent-2);
+  border-color: transparent;
+  color: #fff;
+}
+.mini.primary:disabled {
+  opacity: 0.5;
+}
+
+/* toolbar icons: one size, same as the icons inside the text buttons */
+.toolbar .mini .micon {
+  width: 16px;
+  height: 16px;
+}
+.toolbar .mini.icon {
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+
+/* 무시한 캐릭터 (tree) */
+.tree-head-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 6px 4px;
+}
+.tree-item.ignored {
+  color: var(--muted);
+  cursor: context-menu;
+}
+.tree-item.ignored .tree-label {
+  text-decoration: line-through;
+}
+.tree-item.ignored .tree-count {
+  text-decoration: none;
+  font-size: 11px;
+}
+.status-update {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.status-update.ready {
+  color: var(--accent);
+  font-weight: 600;
+}
+.status-update .mini {
+  height: 24px;
+  font-size: 12px;
+}

@@ -69,7 +69,8 @@ import { ensureCharacter } from './pipeline/classify'
 // 6: game table + assist results stored with the scores.
 // 7: outfit versions merge with / nest under their base character.
 // 8/9: fix version links (a single "(game)" group is not a version).
-export const PIPELINE_REV = 9
+// 10: R-18 = explicit only; questionable joins 민감 (re-decided from stored scores).
+export const PIPELINE_REV = 10
 
 export interface CorePaths {
   dataDir: string
@@ -557,8 +558,8 @@ export class SortaCore {
   // ---- library ----
 
   // `ratings`: the library's rating filter → each count also shown filtered.
-  tree(ratings?: RatingPick[]): LibraryTree {
-    return libraryTree(this.db, ratings, this.dupCount())
+  tree(ratings?: RatingPick[], groups?: number[]): LibraryTree {
+    return libraryTree(this.db, ratings, this.dupCount(), groups, this.settings().ignoredCharacterTags)
   }
 
   // ---- 공유 파일 (.sortapack) ----

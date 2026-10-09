@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import logo from './assets/logo.png'
 import type { JSX } from 'react'
 import { useStore } from './store'
 import type { View } from './store'
@@ -50,6 +51,7 @@ export default function App(): JSX.Element {
     void load()
     const offProgress = window.api.onProgress(onProgress)
     const offToast = window.api.onToast((t) => useStore.getState().showToast(t))
+    const offUpdate = window.api.onUpdateStatus((update) => useStore.setState({ update }))
     const offChanged = window.api.onLibraryChanged(() => {
       void refreshLibrary()
       void refreshModels()
@@ -57,6 +59,7 @@ export default function App(): JSX.Element {
     return () => {
       offProgress()
       offToast()
+      offUpdate()
       offChanged()
     }
   }, [load, onProgress, refreshLibrary, refreshModels])
@@ -86,7 +89,10 @@ export default function App(): JSX.Element {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">Sorta</div>
+        <div className="brand">
+          <img className="brand-logo" src={logo} alt="" draggable={false} />
+          Sorta
+        </div>
         <nav className="flat-group nav">
           {NAV.map(([v, label, Icon]) => (
             <button key={v} className={`mini ${view === v ? 'on' : ''}`} onClick={() => setView(v)}>

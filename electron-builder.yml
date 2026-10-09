@@ -1,0 +1,52 @@
+appId: com.alterstare.sorta
+productName: Sorta
+copyright: Copyright © 2026 alterstare
+publish:
+  provider: github
+  owner: alterstare
+  repo: Sorta
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - LICENSE
+# better-sqlite3 is already the Electron-ABI prebuilt (scripts/native.mjs on
+# install): don't let electron-builder try to compile it.
+npmRebuild: false
+# Native addons + their DLLs / shared libs must live outside the asar.
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
+win:
+  # Multi-size icon pre-rendered by scripts/make-icons.mjs (crisp title bar / taskbar sizes).
+  icon: build/icon.ico
+  target:
+    - nsis
+    - zip
+  # Ship only this platform's onnxruntime binaries.
+  files:
+    - '!node_modules/onnxruntime-node/bin/napi-v*/linux/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v*/darwin/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**'
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # No spaces: on-disk name == latest.yml url == uploaded asset name, so the
+  # updater can find the installer.
+  artifactName: ${productName}-Setup-${version}.${ext}
+linux:
+  icon: build/icons
+  target:
+    - AppImage
+    - tar.gz
+  files:
+    - '!node_modules/onnxruntime-node/bin/napi-v*/win32/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v*/darwin/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v*/linux/arm64/**'
+  category: Graphics
+  artifactName: ${productName}-${version}.${ext}

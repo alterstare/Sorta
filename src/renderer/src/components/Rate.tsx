@@ -9,6 +9,9 @@ import type { ImageItem } from '../../../shared/types'
 import { AddIcon, CheckIcon, FavoriteIcon, StarIcon } from './icons'
 import { setStars, toggleFavorite, toggleGroup } from '../collect'
 
+// A selector must not return a fresh [] each call (endless re-render).
+const NO_GROUPS: { id: number; name: string }[] = []
+
 // 5 stars: click N → N stars; click the current value → none.
 export function Stars({ imgs, size = 14 }: { imgs: ImageItem[]; size?: number }): JSX.Element {
   const value = imgs[0]?.stars ?? 0
@@ -48,7 +51,7 @@ export function FavGroup({ imgs, noGroup = false }: { imgs: ImageItem[]; noGroup
 
 // ＋ → popover: every group with a check (click toggles), then "새 그룹".
 function GroupButton({ imgs }: { imgs: ImageItem[] }): JSX.Element {
-  const groups = useStore((s) => s.tree?.groups ?? [])
+  const groups = useStore((s) => s.tree?.groups) ?? NO_GROUPS
   const setGroupDialog = useStore((s) => s.setGroupDialog)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btn = useRef<HTMLSpanElement>(null)

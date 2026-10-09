@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { JobSummary } from '../../shared/ipc'
+import type { JobSummary, UpdateStatus } from '../../shared/ipc'
 import type {
   AppInfo,
   ImageItem,
@@ -48,6 +48,7 @@ interface State {
   // Screen state that must survive leaving a view (results of slow jobs,
   // positions, selections) — see useKept.
   kept: Record<string, unknown>
+  update: UpdateStatus
   // "새 그룹" dialog: the images that go into the new group (null = closed)
   groupDialog: number[] | null
   setGroupDialog: (ids: number[] | null) => void
@@ -72,6 +73,7 @@ interface State {
   setNode: (n: LibraryNode) => void
   setRatings: (r: RatingPick[], prev?: RatingPick[] | null) => void
   setSort: (k: SortKey) => void
+  setGroupFilter: (ids: number[]) => void
   setDir: (d: SortDir) => void
   setQuery: (q: string) => void
   openViewer: (i: number | null) => void
@@ -94,6 +96,7 @@ export const useStore = create<State>((set, get) => ({
   selected: new Set(),
   setSelected: (selected) => set({ selected }),
   kept: {},
+  update: { state: 'idle' },
   groupDialog: null,
   setGroupDialog: (groupDialog) => set({ groupDialog }),
   renameGroup: null,
@@ -127,7 +130,7 @@ export const useStore = create<State>((set, get) => ({
   load: async () => {
     const [settings, info] = await Promise.all([window.api.getSettings(), window.api.appInfo()])
     // The library view (rating filter, sort) comes back as it was left.
-    set({ settings, info, filter: { ...get().filter, ratings: settings.libRatings, sort: settings.libSort, dir: settings.libDir } })
+    set({ settings, info, filter: { ...get().filter, ratings: settings.libRatings, groups: settings.libGroups, sort: settings.libSort, dir: settings.libDir } })
     await Promise.all([get().refreshModels(), get().refreshLibrary()])
   },
   saveSettings: async (patch) => set({ settings: await window.api.saveSettings(patch) }),
@@ -147,7 +150,7 @@ export const useStore = create<State>((set, get) => ({
   refreshModels: async () => set({ models: await window.api.models() }),
   refreshLibrary: async () => {
     const f = get().filter
-    const [tree, images] = await Promise.all([window.api.tree(f.ratings), window.api.images(f)])
+    const [tree, images] = await Promise.all([window.api.tree(f.ratings, f.groups), window.api.images(f)])
     // Keep only selections that are still listed.
     const ids = new Set(images.map((i) => i.id))
     const selected = new Set([...get().selected].filter((id) => ids.has(id)))
@@ -160,6 +163,11 @@ export const useStore = create<State>((set, get) => ({
   setRatings: (ratings, prev) => {
     set({ filter: { ...get().filter, ratings }, viewerIndex: null })
     void get().saveSettings(prev === undefined ? { libRatings: ratings } : { libRatings: ratings, libRatingsPrev: prev })
+    void get().refreshLibrary()
+  },
+  setGroupFilter: (groups) => {
+    set({ filter: { ...get().filter, groups }, viewerIndex: null })
+    void get().saveSettings({ libGroups: groups })
     void get().refreshLibrary()
   },
   setSort: (sort) => {

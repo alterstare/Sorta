@@ -47,10 +47,13 @@ describe('rating', () => {
   it('clear cases', () => {
     expect(decideRating(r(0.9, 0.05, 0.02, 0.01), T)).toMatchObject({ rating: 'general', review: false })
     expect(decideRating(r(0.1, 0.8, 0.05, 0.01), T)).toMatchObject({ rating: 'sensitive', review: false })
-    expect(decideRating(r(0, 0.1, 0.3, 0.6), T)).toMatchObject({ rating: 'r18', review: false })
+    expect(decideRating(r(0, 0.1, 0.3, 0.65), T)).toMatchObject({ rating: 'r18', review: false })
+    // questionable alone is 민감, not R-18
+    expect(decideRating(r(0.1, 0.1, 0.8, 0.0), T)).toMatchObject({ rating: 'sensitive', review: false })
+    expect(decideRating(r(0.1, 0.3, 0.4, 0.2), T)).toMatchObject({ rating: 'sensitive', review: false })
   })
   it('borderline goes to the stricter rating and review', () => {
-    expect(decideRating(r(0.4, 0.2, 0.25, 0.2), T)).toMatchObject({ rating: 'r18', review: true })
+    expect(decideRating(r(0.4, 0.05, 0.1, 0.45), T)).toMatchObject({ rating: 'r18', review: true })
     expect(decideRating(r(0.5, 0.45, 0.02, 0), T)).toMatchObject({ rating: 'sensitive', review: true })
   })
 })
@@ -123,7 +126,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 const tags = (chars: [string, number][], adult = 0): TagResult => ({
-  rating: { general: 1 - adult, sensitive: 0, questionable: adult / 2, explicit: adult / 2 },
+  rating: { general: 1 - adult, sensitive: 0, questionable: 0, explicit: adult },
   characters: chars.map(([tag, score]) => ({ tag, score })),
   general: []
 })

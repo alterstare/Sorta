@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { Api, JobSummary } from '../shared/ipc'
+import type { Api, JobSummary, UpdateStatus } from '../shared/ipc'
 import type { ProgressEvent } from '../shared/types'
 
 const on = <T>(ch: string, cb: (v: T) => void): (() => void) => {
@@ -23,7 +23,7 @@ const api: Api = {
   downloadModel: (id) => ipcRenderer.invoke(IPC.downloadModel, id),
   deleteModel: (id) => ipcRenderer.invoke(IPC.deleteModel, id),
   runAssist: () => ipcRenderer.invoke(IPC.runAssist),
-  tree: (r) => ipcRenderer.invoke(IPC.tree, r),
+  tree: (r, g) => ipcRenderer.invoke(IPC.tree, r, g),
   setFavorite: (ids, on) => ipcRenderer.invoke(IPC.setFavorite, ids, on),
   setStars: (ids, n) => ipcRenderer.invoke(IPC.setStars, ids, n),
   groups: () => ipcRenderer.invoke(IPC.groups),
@@ -54,6 +54,9 @@ const api: Api = {
   seriesNames: () => ipcRenderer.invoke(IPC.seriesNames),
   undo: () => ipcRenderer.invoke(IPC.undo),
   onToast: (cb) => on<JobSummary>(IPC.toast, cb),
+  onUpdateStatus: (cb) => on<UpdateStatus>(IPC.updateStatus, cb),
+  checkUpdate: () => ipcRenderer.invoke(IPC.checkUpdate),
+  installUpdate: () => ipcRenderer.send(IPC.installUpdate),
   learnRefresh: () => ipcRenderer.invoke(IPC.learnRefresh),
   learnPlan: (t) => ipcRenderer.invoke(IPC.learnPlan, t),
   learn: (tags) => ipcRenderer.invoke(IPC.learn, tags),

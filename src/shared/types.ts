@@ -52,6 +52,7 @@ export interface Settings {
   // Library view (kept between sessions)
   libRatings: RatingPick[] // 분류 filter
   libRatingsPrev: RatingPick[] | null // selection before "전체" was ticked
+  libGroups: number[] // 그룹 filter (checked groups; empty = all pictures)
   libSort: SortKey
   libDir: SortDir
   libLayout: 'grid' | 'list'
@@ -99,6 +100,7 @@ export type SortDir = 'asc' | 'desc'
 export interface LibraryFilter {
   node: LibraryNode
   ratings: RatingPick[] // all three = no rating filter (unrated images included)
+  groups?: number[] // only pictures in one of these groups (empty / absent = no group filter)
   q: string
   sort: SortKey
   dir: SortDir
@@ -109,6 +111,7 @@ export interface TreeCharacter {
   name: string
   count: number // base character: its images incl. outfit versions
   shown?: number // with the rating filter (only when it filters something)
+  tag?: string | null // danbooru tag (무시 목록 works on tags)
   children?: TreeCharacter[] // outfit / version characters (e.g. Ako (Dress))
 }
 // 소속 in the library tree: sub-affiliations, then its characters.
@@ -144,6 +147,7 @@ export interface LibraryTree {
   counts: TreeCounts
   shown?: TreeCounts // the same with the rating filter (absent when nothing is filtered)
   dups: number | null // images in near-duplicate groups (null = not checked yet)
+  ignored: { tag: string; name: string; series: string | null }[] // 무시한 캐릭터 (the settings list, named when known)
 }
 
 export interface DupGroup {
@@ -180,7 +184,7 @@ export interface ImageItem {
   stars: number // 0–5
   groups: number[] // fav_groups ids
   // One per detected character: name (null = unknown) and status.
-  characters: { id: number | null; name: string | null; series: string | null; status: MatchStatus; confidence: number | null }[]
+  characters: { id: number | null; name: string | null; series: string | null; tag: string | null; status: MatchStatus; confidence: number | null }[]
 }
 
 export interface ModelInfo {
