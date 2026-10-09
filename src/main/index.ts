@@ -1,6 +1,6 @@
 // Electron shell for the standalone app: window, data folder, image protocol,
 // IPC wiring. All sorting logic lives in ../core.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell } from 'electron'
 import { watch, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
@@ -8,7 +8,7 @@ import { SortaCore, CancelledError } from '../core'
 import { isInside } from '../core/pipeline/scan'
 import { IPC } from '../shared/ipc'
 import type { JobSummary } from '../shared/ipc'
-import type { LibraryFilter, ModelId, Rating, ReviewKind, Settings } from '../shared/types'
+import type { LibraryFilter, ModelId, PackExportOptions, Rating, RatingPick, ReviewKind, Settings } from '../shared/types'
 
 let core: SortaCore
 let win: BrowserWindow | null = null
@@ -137,6 +137,7 @@ async function importJob(): Promise<JobSummary> {
     return parts.join(', ')
   })
   if (!imp.ok) return imp
+  void summarize(core.runFileStats().done, () => '') // size / date for sorting
   const models = await core.models()
   if (!models.find((x) => x.id === 'wd')?.installed) return { ok: true, message: `${imp.message} · 모델이 없어 분류는 건너뛰었습니다` }
   const cls = await classifyJob()
@@ -220,7 +221,82 @@ function registerIpc(): void {
     afterModelChange(id)
   })
   ipcMain.handle(IPC.runAssist, () => assistJob())
-  ipcMain.handle(IPC.tree, () => core.tree())
+  ipcMain.handle(IPC.tree, (_e, r?: RatingPick[]) => core.tree(r))
+  // Collections change no classification: refresh the views only.
+  const collect =
+    <A extends unknown[], R>(fn: (...a: A) => R) =>
+    (_e: unknown, ...a: A): R => {
+      const r = fn(...a)
+      changed()
+      return r
+    }
+  ipcMain.handle(IPC.setFavorite, collect((ids: number[], on: boolean) => core.setFavorite(ids, on)))
+  ipcMain.handle(IPC.setStars, collect((ids: number[], n: number) => core.setStars(ids, n)))
+  ipcMain.handle(IPC.groups, () => core.groups())
+  ipcMain.handle(IPC.createGroup, collect((n: string, ids?: number[]) => core.createGroup(n, ids)))
+  ipcMain.handle(IPC.renameGroup, collect((id: number, n: string) => core.renameGroup(id, n)))
+  ipcMain.handle(IPC.deleteGroup, collect((id: number) => core.deleteGroup(id)))
+  ipcMain.handle(IPC.setGroupMembership, collect((ids: number[], g: number, on: boolean) => core.setGroupMembership(ids, g, on)))
+  ipcMain.handle(IPC.exportPack, async (_e, o: PackExportOptions) => {
+    const d = new Date()
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+    const r = await dialog.showSaveDialog(win!, {
+      title: 'Sorta 공유 파일로 내보내기',
+      defaultPath: `sorta-${stamp}.sortapack`,
+      filters: [{ name: 'Sorta 공유 파일', extensions: ['sortapack'] }]
+    })
+    if (r.canceled || !r.filePath) return null
+    try {
+      const n = await core.exportPack(r.filePath, app.getVersion(), o)
+      return { ok: true, message: `내보내기 완료 · ${(n / 1048576).toFixed(1)}MB · ${r.filePath}` }
+    } catch (e) {
+      return { ok: false, message: String((e as Error).message ?? e) }
+    }
+  })
+  ipcMain.handle(IPC.pickPack, async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: 'Sorta 공유 파일 불러오기',
+      properties: ['openFile'],
+      filters: [{ name: 'Sorta 공유 파일', extensions: ['sortapack'] }]
+    })
+    return r.canceled ? null : r.filePaths[0]
+  })
+  ipcMain.handle(IPC.previewPack, (_e, f: string, o: { overwrite: boolean; learned: boolean }) => core.previewPack(f, o))
+  ipcMain.handle(IPC.importPack, async (_e, f: string, o: { overwrite: boolean; learned: boolean }) => {
+    try {
+      const p = await core.importPack(f, o)
+      changed()
+      learnRefreshSoon(500) // compare the library with the new references; organized pictures follow
+      return {
+        ok: true,
+        message: `불러오기 완료 · 새 캐릭터 ${p.newCharacters}명 · 새 소속 ${p.newAffiliations}개${p.learnedCharacters ? ` · 학습 ${p.learnedCharacters}명` : ''} · Ctrl+Z로 되돌리기`
+      }
+    } catch (e) {
+      return { ok: false, message: String((e as Error).message ?? e) }
+    }
+  })
+  ipcMain.handle(IPC.duplicates, () => core.duplicates())
+  ipcMain.handle(IPC.setAside, (_e, ids: number[]) =>
+    summarize(core.runSetAside(ids).done, (r) => `${r.moved}장을 정리 폴더의 "중복" 폴더로 옮겼습니다${r.failed.length ? ` · ${r.failed.length}장 실패` : ''} · Ctrl+Z로 되돌리기`)
+  )
+  ipcMain.handle(IPC.notDuplicate, collect((ids: number[]) => core.notDuplicate(ids)))
+  // Only images Sorta knows can be copied.
+  ipcMain.handle(IPC.copyImage, async (_e, p: string) => {
+    if (!core.db.prepare('SELECT 1 FROM images WHERE path = ?').get(p)) return false
+    let img = nativeImage.createFromPath(p) // PNG / JPEG
+    if (img.isEmpty()) {
+      // webp / avif / gif …: decode with sharp (first frame) → PNG
+      try {
+        const sharp = (await import('sharp')).default
+        img = nativeImage.createFromBuffer(await sharp(p, { animated: false }).png().toBuffer())
+      } catch {
+        return false
+      }
+    }
+    if (img.isEmpty()) return false
+    clipboard.writeImage(img)
+    return true
+  })
   ipcMain.handle(IPC.images, (_e, f: LibraryFilter) => core.images(f))
   ipcMain.handle(IPC.showInFolder, (_e, p: string) => shell.showItemInFolder(p))
   // Review decisions: each refreshes the library views.
@@ -302,6 +378,7 @@ else {
     restartWatch()
     // Results were reset for a pipeline fix → re-classify in the background
     // (progress shows in the status bar; cancellable).
+    void summarize(core.runFileStats().done, () => '') // images imported before sizes were kept
     void core.models().then(async (m) => {
       const has = (id: ModelId): boolean => !!m.find((x) => x.id === id)?.installed
       // The small character → game table comes with the main tagger.

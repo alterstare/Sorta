@@ -167,10 +167,11 @@ export function reviewQueue(db: Db, kind: ReviewKind, lowConfidence: number): Re
     kind === 'character'
       ? "EXISTS (SELECT 1 FROM image_characters ic WHERE ic.image_id = i.id AND ic.status = 'pending')"
       : 'i.rating_review = 1'
+  // set-aside duplicates are out of the queue
   const rows = db
     .prepare(
       `SELECT i.id, i.path, i.thumbnail_path, i.width, i.height, i.rating, i.rating_score FROM images i
-       WHERE ${where} ORDER BY i.id`
+       WHERE i.set_aside = 0 AND ${where} ORDER BY i.id`
     )
     .all() as {
     id: number

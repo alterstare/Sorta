@@ -61,7 +61,6 @@ export const CAMIE_SPEC: ModelSpec = {
   id: 'camie',
   label: 'Camie Tagger v2 (보조 · 캐릭터 26,968명)',
   license: 'GPL-3.0',
-  note: 'GPL-3.0 모델입니다. 앱에 포함되지 않고 사용자가 직접 받습니다.',
   files: [
     { file: 'camie.onnx', url: `${HF}/Camais03/camie-tagger-v2/resolve/main/camie-tagger-v2.onnx`, bytes: 788_983_561 },
     { file: 'camie-meta.json', url: `${HF}/Camais03/camie-tagger-v2/resolve/main/camie-tagger-v2-metadata.json`, bytes: 7_771_946 }
@@ -133,12 +132,37 @@ export async function downloadModel(dir: string, spec: ModelSpec, ctx: JobContex
   await fs.mkdir(dir, { recursive: true })
   const total = spec.files.reduce((s, f) => s + f.bytes, 0)
   let base = 0
+  let shown = -1
+  // Bytes, but only re-sent when the shown MB changes (not per network chunk).
+  const report = (n: number): void => {
+    const mb = Math.floor(n / 1048576)
+    if (mb === shown) return
+    shown = mb
+    ctx.report(Math.min(n, total), total, undefined, 'bytes')
+  }
   for (const f of spec.files) {
     const dest = join(dir, f.file)
     const exists = await fs.stat(dest).then((s) => s.size > 0).catch(() => false)
-    if (!exists) await downloadFile(f, dest, ctx, (n) => ctx.report(Math.min(base + n, total), total))
+    if (!exists) await downloadWithRetry(f, dest, ctx, (n) => report(base + n))
     base += f.bytes
-    ctx.report(Math.min(base, total), total)
+    report(base)
+  }
+}
+
+// A long download over HTTP can be cut mid-stream (the server or a proxy
+// closes the connection; Node's fetch then fails with "terminated"). The
+// partial file is kept, so retry and continue from where it stopped.
+const RETRY_WAIT_MS = [2000, 5000, 10000, 20000, 30000]
+async function downloadWithRetry(f: ModelFile, dest: string, ctx: JobContext, onBytes: (n: number) => void): Promise<void> {
+  for (let i = 0; ; i++) {
+    try {
+      return await downloadFile(f, dest, ctx, onBytes)
+    } catch (e) {
+      if (ctx.signal.aborted || i >= RETRY_WAIT_MS.length || /HTTP 4\d\d/.test(String((e as Error).message))) {
+        throw new Error(`${f.file} 받기 실패: ${String((e as Error).message ?? e)} (다시 받으면 이어서 받습니다)`)
+      }
+      await new Promise((r) => setTimeout(r, RETRY_WAIT_MS[i]))
+    }
   }
 }
 
@@ -150,6 +174,7 @@ async function downloadFile(f: ModelFile, dest: string, ctx: JobContext, onBytes
     signal: ctx.signal,
     redirect: 'follow'
   })
+  if (res.status === 416 && have) return fs.rename(part, dest) // the part was already complete
   if (res.status === 200) have = 0 // server ignored the range → start over
   else if (res.status !== 206) throw new Error(`${f.file}: HTTP ${res.status}`)
   if (!res.body) throw new Error(`${f.file}: empty response`)

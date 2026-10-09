@@ -145,7 +145,7 @@ describe('import + classify', () => {
     await pattern(join(src, 'sub', 'c.png'), 5) // different
     let r = await core.runImport().done
     expect(r).toMatchObject({ added: 3, failed: [] })
-    const imgs = core.images({ node: { type: 'all' }, rating: 'all', q: '' })
+    const imgs = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
     expect(imgs.every((i) => i.thumb && existsSync(i.thumb))).toBe(true)
     expect(imgs.filter((i) => i.dupOf !== null)).toHaveLength(1)
 
@@ -155,7 +155,7 @@ describe('import + classify', () => {
     renameSync(join(src, 'a.png'), join(src, 'sub', 'a-moved.png'))
     r = await core.runImport().done
     expect(r).toMatchObject({ added: 0, moved: 1 })
-    expect(core.images({ node: { type: 'all' }, rating: 'all', q: 'a-moved' })).toHaveLength(1)
+    expect(core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: 'a-moved' })).toHaveLength(1)
     core.close()
   })
 
@@ -196,12 +196,12 @@ describe('import + classify', () => {
       'Kagamine Rin'
     ])
 
-    const pending = core.images({ node: { type: 'pending' }, rating: 'all', q: '' })
+    const pending = core.images({ node: { type: 'pending' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
     expect(pending.map((i) => i.path.endsWith('g.png'))).toEqual([true])
-    expect(core.images({ node: { type: 'all' }, rating: 'r18', q: '' }).map((i) => i.path.endsWith('b.png'))).toEqual([
+    expect(core.images({ node: { type: 'all' }, ratings: ['r18'], sort: 'name', dir: 'asc', q: '' }).map((i) => i.path.endsWith('b.png'))).toEqual([
       true
     ])
-    expect(core.images({ node: { type: 'all' }, rating: 'all', q: 'blue arch' })).toHaveLength(2)
+    expect(core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: 'blue arch' })).toHaveLength(2)
     core.close()
   })
 

@@ -135,7 +135,7 @@ export default function CharacterPicker({
         <div className="picker-list" ref={listRef}>
           {hits.map((h, i) => (
             <Fragment key={h.id || h.tag}>
-              {h.id === 0 && (i === 0 || hits[i - 1].id !== 0) && <div className="picker-sec">모델이 아는 캐릭터 (아직 라이브러리에 없음)</div>}
+              {h.id === 0 && (i === 0 || hits[i - 1].id !== 0) && <div className="picker-sec">모델이 아는 캐릭터 (라이브러리에 아직 없는 캐릭터)</div>}
               <button
                 className={`picker-opt ${i === sel ? 'sel' : ''}`}
                 title={h.tag}

@@ -5,6 +5,7 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import sharp from 'sharp'
 import type * as Ort from 'onnxruntime-node'
+import { gpuProvider } from './gpu'
 import type { RgbImage, TagResult, Tagger } from './types'
 import { TAGGER_SPEC } from './models'
 
@@ -35,11 +36,12 @@ export class WdTagger implements Tagger {
     const o = await ort()
     const [onnx, csv] = TAGGER_SPEC.files.map((f) => join(modelsDir, f.file))
     const tags = parseTags(await fs.readFile(csv, 'utf8'))
-    // DirectML (Windows GPU) when allowed; fall back to CPU if it can't start.
-    if (useGpu && process.platform === 'win32') {
+    // GPU (DirectML / CUDA) when allowed; fall back to CPU if it can't start.
+    const gpu = useGpu ? gpuProvider() : null
+    if (gpu) {
       try {
-        const s = await o.InferenceSession.create(onnx, { executionProviders: ['dml', 'cpu'] })
-        return new WdTagger(s, tags, 'dml')
+        const s = await o.InferenceSession.create(onnx, { executionProviders: [gpu, 'cpu'] })
+        return new WdTagger(s, tags, gpu)
       } catch {
         /* fall through to CPU */
       }

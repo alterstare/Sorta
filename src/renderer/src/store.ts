@@ -8,8 +8,10 @@ import type {
   LibraryTree,
   ModelInfo,
   ProgressEvent,
-  Rating,
+  RatingPick,
   Settings,
+  SortDir,
+  SortKey,
   WikiSuggestion
 } from '../../shared/types'
 
@@ -35,7 +37,6 @@ interface State {
   // Live background jobs keyed by id; finished ones drop out.
   jobs: Record<number, ProgressEvent>
   toast: JobSummary | null
-  thumbSize: ThumbSize
   // library
   tree: LibraryTree | null
   filter: LibraryFilter
@@ -47,6 +48,12 @@ interface State {
   // Screen state that must survive leaving a view (results of slow jobs,
   // positions, selections) — see useKept.
   kept: Record<string, unknown>
+  // "새 그룹" dialog: the images that go into the new group (null = closed)
+  groupDialog: number[] | null
+  setGroupDialog: (ids: number[] | null) => void
+  // rename dialog for a group (null = closed)
+  renameGroup: { id: number; name: string } | null
+  setRenameGroup: (g: { id: number; name: string } | null) => void
   charTab: CharTab
   setCharTab: (t: CharTab) => void
   orgLookup: OrgLookup | null
@@ -55,7 +62,6 @@ interface State {
   clearOrgLookup: () => void
   undo: () => Promise<void>
   setView: (v: View) => void
-  setThumbSize: (s: ThumbSize) => void
   load: () => Promise<void>
   saveSettings: (patch: Partial<Settings>) => Promise<void>
   onProgress: (e: ProgressEvent) => void
@@ -64,7 +70,9 @@ interface State {
   refreshModels: () => Promise<void>
   refreshLibrary: () => Promise<void>
   setNode: (n: LibraryNode) => void
-  setRating: (r: Rating | 'all') => void
+  setRatings: (r: RatingPick[], prev?: RatingPick[] | null) => void
+  setSort: (k: SortKey) => void
+  setDir: (d: SortDir) => void
   setQuery: (q: string) => void
   openViewer: (i: number | null) => void
 }
@@ -78,15 +86,18 @@ export const useStore = create<State>((set, get) => ({
   models: [],
   jobs: {},
   toast: null,
-  thumbSize: 'm',
   tree: null,
-  filter: { node: { type: 'all' }, rating: 'all', q: '' },
+  filter: { node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], q: '', sort: 'date', dir: 'desc' },
   images: [],
   viewerIndex: null,
   libraryVersion: 0,
   selected: new Set(),
   setSelected: (selected) => set({ selected }),
   kept: {},
+  groupDialog: null,
+  setGroupDialog: (groupDialog) => set({ groupDialog }),
+  renameGroup: null,
+  setRenameGroup: (renameGroup) => set({ renameGroup }),
   charTab: 'manage',
   setCharTab: (charTab) => set({ charTab }),
   orgLookup: null,
@@ -113,10 +124,10 @@ export const useStore = create<State>((set, get) => ({
     get().showToast({ ok: true, message: r.label ? `되돌리기 완료: ${r.label}` : '되돌릴 작업이 없습니다.' })
   },
   setView: (view) => set({ view }),
-  setThumbSize: (thumbSize) => set({ thumbSize }),
   load: async () => {
     const [settings, info] = await Promise.all([window.api.getSettings(), window.api.appInfo()])
-    set({ settings, info })
+    // The library view (rating filter, sort) comes back as it was left.
+    set({ settings, info, filter: { ...get().filter, ratings: settings.libRatings, sort: settings.libSort, dir: settings.libDir } })
     await Promise.all([get().refreshModels(), get().refreshLibrary()])
   },
   saveSettings: async (patch) => set({ settings: await window.api.saveSettings(patch) }),
@@ -135,7 +146,8 @@ export const useStore = create<State>((set, get) => ({
   dismissToast: () => set({ toast: null }),
   refreshModels: async () => set({ models: await window.api.models() }),
   refreshLibrary: async () => {
-    const [tree, images] = await Promise.all([window.api.tree(), window.api.images(get().filter)])
+    const f = get().filter
+    const [tree, images] = await Promise.all([window.api.tree(f.ratings), window.api.images(f)])
     // Keep only selections that are still listed.
     const ids = new Set(images.map((i) => i.id))
     const selected = new Set([...get().selected].filter((id) => ids.has(id)))
@@ -145,8 +157,19 @@ export const useStore = create<State>((set, get) => ({
     set({ filter: { ...get().filter, node }, viewerIndex: null, selected: new Set() })
     void get().refreshLibrary()
   },
-  setRating: (rating) => {
-    set({ filter: { ...get().filter, rating }, viewerIndex: null })
+  setRatings: (ratings, prev) => {
+    set({ filter: { ...get().filter, ratings }, viewerIndex: null })
+    void get().saveSettings(prev === undefined ? { libRatings: ratings } : { libRatings: ratings, libRatingsPrev: prev })
+    void get().refreshLibrary()
+  },
+  setSort: (sort) => {
+    set({ filter: { ...get().filter, sort } })
+    void get().saveSettings({ libSort: sort })
+    void get().refreshLibrary()
+  },
+  setDir: (dir) => {
+    set({ filter: { ...get().filter, dir } })
+    void get().saveSettings({ libDir: dir })
     void get().refreshLibrary()
   },
   setQuery: (q) => {

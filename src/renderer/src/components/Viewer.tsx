@@ -1,11 +1,13 @@
 // 크게 보기: one image over the grid, ← / → to move, Esc to close.
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import type { ImageItem } from '../../../shared/types'
 import { CloseIcon, FolderOpenIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
 import EditBar from './EditBar'
+import { FavGroup, Stars } from './Rate'
+import { useImageMenu } from './ImageMenu'
 
 const STATUS: Record<string, string> = { auto: '자동', confirmed: '확정', pending: '검토', unknown: '미확인' }
 
@@ -13,6 +15,9 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
   const index = useStore((s) => s.viewerIndex)
   const open = useStore((s) => s.openViewer)
   const img = index === null ? null : items[index]
+  const wheelNav = useStore((s) => s.settings?.wheelNavigate ?? true)
+  const { onContextMenu, menu } = useImageMenu(items)
+  const lastWheel = useRef(0)
 
   useEffect(() => {
     if (index === null) return
@@ -27,10 +32,20 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
     return () => window.removeEventListener('keydown', onKey)
   }, [index, items.length, open])
 
+  // 스크롤로 넘기기: one image per wheel gesture (a trackpad fires many events).
+  const onWheel = (e: React.WheelEvent): void => {
+    if (!wheelNav || index === null || Math.abs(e.deltaY) < 4) return
+    const now = Date.now()
+    if (now - lastWheel.current < 250) return
+    lastWheel.current = now
+    if (e.deltaY > 0 && index < items.length - 1) open(index + 1)
+    else if (e.deltaY < 0 && index > 0) open(index - 1)
+  }
+
   if (!img || index === null) return null
   const name = img.path.split(/[\\/]/).pop()
   return (
-    <div className="viewer" onClick={() => open(null)}>
+    <div className="viewer" onClick={() => open(null)} onWheel={onWheel}>
       <div className="viewer-top" onClick={(e) => e.stopPropagation()}>
         <div className="viewer-info">
           <div className="viewer-title selectable">{name}</div>
@@ -55,6 +70,10 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
             </span>
           </div>
         </div>
+        <div className="viewer-rate">
+          <Stars imgs={[img]} size={16} />
+          <FavGroup imgs={[img]} />
+        </div>
         <div className="flat-group">
           <button className="mini" onClick={() => void window.api.showInFolder(img.path)}>
             <FolderOpenIcon />
@@ -66,7 +85,14 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
         </div>
       </div>
       <EditBar img={img} />
-      <img className="viewer-img" src={window.api.imageUrl(img.path)} onClick={(e) => e.stopPropagation()} draggable={false} />
+      <img
+        className="viewer-img"
+        src={window.api.imageUrl(img.path)}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => onContextMenu(e, img)}
+        draggable={false}
+      />
+      {menu}
       {index > 0 && (
         <button
           className="viewer-arrow left"

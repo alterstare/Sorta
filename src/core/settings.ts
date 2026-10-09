@@ -22,7 +22,14 @@ export const DEFAULT_SETTINGS: Settings = {
   useGpu: true,
   allowWebLookup: false,
   autoUpdate: true,
-  theme: 'light'
+  theme: 'light',
+  wheelNavigate: true,
+  libRatings: ['general', 'sensitive', 'r18'],
+  libRatingsPrev: null,
+  libSort: 'date',
+  libDir: 'desc',
+  libLayout: 'grid',
+  thumbSize: 'm'
 }
 
 export function loadSettings(db: Db): Settings {

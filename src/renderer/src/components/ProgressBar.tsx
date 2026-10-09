@@ -3,6 +3,8 @@ import type { JSX } from 'react'
 import { useStore } from '../store'
 import { CloseIcon } from './icons'
 
+const mb = (n: number): string => Math.round(n / 1048576).toLocaleString()
+
 export default function ProgressBar(): JSX.Element {
   const jobs = Object.values(useStore((s) => s.jobs))
   const cur = jobs.find((j) => j.state === 'running') ?? jobs[0]
@@ -16,7 +18,9 @@ export default function ProgressBar(): JSX.Element {
           <div className={`bar ${pct === null ? 'indeterminate' : ''}`}>
             <div className="bar-fill" style={pct === null ? undefined : { width: `${pct}%` }} />
           </div>
-          <span className="status-count">{pct === null ? '' : `${cur.done} / ${cur.total}`}</span>
+          <span className="status-count">
+            {pct === null ? '' : cur.unit === 'bytes' ? `${mb(cur.done)} / ${mb(cur.total)} MB` : `${cur.done.toLocaleString()} / ${cur.total.toLocaleString()}`}
+          </span>
           {jobs.length > 1 && <span className="status-more">대기 {jobs.length - 1}개</span>}
           <button className="status-cancel" title="취소" onClick={() => void window.api.cancelJob(cur.jobId)}>
             <CloseIcon />

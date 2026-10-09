@@ -4,6 +4,10 @@ import type {
   ClusterResult,
   ManagedCharacter,
   OrganizePlan,
+  PackExportOptions,
+  PackPreview,
+  DupGroup,
+  RatingPick,
   OrgChart,
   WikiLookupResult,
   GameOption,
@@ -37,6 +41,21 @@ export const IPC = {
   downloadModel: 'models:download',
   deleteModel: 'models:delete',
   tree: 'library:tree',
+  setFavorite: 'collect:favorite',
+  setStars: 'collect:stars',
+  groups: 'collect:groups',
+  createGroup: 'collect:createGroup',
+  renameGroup: 'collect:renameGroup',
+  deleteGroup: 'collect:deleteGroup',
+  setGroupMembership: 'collect:membership',
+  copyImage: 'app:copyImage',
+  duplicates: 'dup:groups',
+  exportPack: 'pack:export',
+  pickPack: 'pack:pick',
+  previewPack: 'pack:preview',
+  importPack: 'pack:import',
+  setAside: 'dup:setAside',
+  notDuplicate: 'dup:notDup',
   images: 'library:images',
   libraryChanged: 'library:changed',
   showInFolder: 'file:show',
@@ -104,7 +123,25 @@ export interface Api {
   downloadModel: (id: ModelId) => Promise<JobSummary>
   deleteModel: (id: ModelId) => Promise<void>
   runAssist: () => Promise<JobSummary>
-  tree: () => Promise<LibraryTree>
+  tree: (ratings?: RatingPick[]) => Promise<LibraryTree>
+  // 즐겨찾기 · 평점 · 그룹 — each change is one undo step
+  setFavorite: (ids: number[], on: boolean) => Promise<void>
+  setStars: (ids: number[], stars: number) => Promise<void>
+  groups: () => Promise<{ id: number; name: string }[]>
+  createGroup: (name: string, ids?: number[]) => Promise<number>
+  renameGroup: (id: number, name: string) => Promise<void>
+  deleteGroup: (id: number) => Promise<void>
+  setGroupMembership: (ids: number[], groupId: number, on: boolean) => Promise<void>
+  copyImage: (path: string) => Promise<boolean> // original image → clipboard
+  // 공유 파일 (.sortapack)
+  exportPack: (o: PackExportOptions) => Promise<JobSummary | null> // null = save dialog cancelled
+  pickPack: () => Promise<string | null>
+  previewPack: (file: string, o: { overwrite: boolean; learned: boolean }) => Promise<PackPreview>
+  importPack: (file: string, o: { overwrite: boolean; learned: boolean }) => Promise<JobSummary>
+  // 중복 정리
+  duplicates: () => Promise<DupGroup[]>
+  setAside: (ids: number[]) => Promise<JobSummary> // → <정리 폴더>/중복, one undo step
+  notDuplicate: (ids: number[]) => Promise<void>
   images: (f: LibraryFilter) => Promise<ImageItem[]>
   onLibraryChanged: (cb: () => void) => () => void
   showInFolder: (path: string) => Promise<void>

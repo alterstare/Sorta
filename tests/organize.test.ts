@@ -52,13 +52,13 @@ async function setup(): Promise<SortaCore> {
   await solid(join(src, 'dress.png'), [255, 0, 255])
   await core.runImport().done
   await core.runClassify().done
-  const other = core.images({ node: { type: 'all' }, rating: 'all', q: '' }).find((i) => i.path.endsWith('other.png'))!
+  const other = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).find((i) => i.path.endsWith('other.png'))!
   core.markOther([other.id])
   return core
 }
 
 const where = (core: SortaCore, name: string): string => {
-  const p = core.images({ node: { type: 'all' }, rating: 'all', q: '' }).find((i) => i.path.endsWith(name))!.path
+  const p = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).find((i) => i.path.endsWith(name))!.path
   return relative(dir, p).replace(/\\/g, '/')
 }
 
@@ -95,7 +95,7 @@ describe('folder organizing', () => {
     writeFileSync(join(out, 'Blue Archive', 'Hoshino', 'hoshino.png'), 'someone else')
     await core.runOrganize().done
     expect(where(core, 'hoshino (2).png')).toBe('sorted/Blue Archive/Hoshino/hoshino (2).png')
-    const id = core.images({ node: { type: 'all' }, rating: 'all', q: '' }).find((i) => i.path.endsWith('hoshino (2).png'))!.id
+    const id = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).find((i) => i.path.endsWith('hoshino (2).png'))!.id
     const aoi = core.createCharacter('Aoi', 'Blue Archive')
     core.confirmCharacters([id], [aoi])
     await core.runReorganize().done
@@ -109,7 +109,7 @@ describe('folder organizing', () => {
     const plan = core.organizePlan()
     // Every picture here is auto-confirmed except 기타 (user marked it).
     expect(plan.moves.map((m) => basename(m.from))).toEqual(['other.png'])
-    const id = core.images({ node: { type: 'all' }, rating: 'all', q: '' }).find((i) => i.path.endsWith('hoshino.png'))!.id
+    const id = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).find((i) => i.path.endsWith('hoshino.png'))!.id
     const hoshino = core.characters().find((c) => c.name === 'Hoshino')!
     core.confirmCharacters([id], [hoshino.id])
     expect(core.organizePlan().moves).toHaveLength(2)
@@ -146,7 +146,7 @@ describe('character management', () => {
     expect(list().find((c) => c.id === hoshino.id)!.aliases).toContain('Shiroko')
     const duo = (): string[] =>
       core
-        .images({ node: { type: 'all' }, rating: 'all', q: '' })
+        .images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
         .find((i) => i.path.endsWith('duo.png'))!
         .characters.map((c) => c.name ?? '')
     expect(duo()).toEqual(['호시노'])
@@ -156,6 +156,53 @@ describe('character management', () => {
 
     core.setSeries([hoshino.id], 'Other Game')
     expect(list().find((c) => c.id === hoshino.id)!.series).toBe('Other Game')
+    core.close()
+  })
+})
+
+describe('중복 정리', () => {
+  it('groups near-identical hashes, sets aside into 정리 폴더/중복, undoes, remembers 중복 아님', async () => {
+    // grays: everything flat, except 'var.png' which differs in one corner (a 차분)
+    const flat = new Uint8Array(64 * 64).fill(100)
+    const variant = flat.slice()
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) variant[y * 64 + x] = 200
+    const core = new SortaCore(join(dir, 'data'), { grayLoader: async (_id, f) => (f.endsWith('var.png') ? variant : flat) })
+    core.saveSettings({ organizeDir: out })
+    const ins = core.db.prepare('INSERT INTO images (path, sha256, phash, width, height, file_size, imported_at) VALUES (?, ?, ?, ?, ?, ?, 1)')
+    const put = (name: string, phash: string, w: number): string => {
+      const p = join(src, name)
+      writeFileSync(p, name)
+      ins.run(p, name, phash, w, w, 10)
+      return p
+    }
+    put('big.png', 'ffffffff00000000', 1000)
+    const small = put('small.png', 'ffffffff00000003', 500) // 2 bits apart
+    put('other.png', '0000000000000000', 800) // far from both… but 32 from big
+    put('pair1.png', '0f0f0f0f0f0f0f0f', 300)
+    put('pair2.png', '0f0f0f0f0f0f0f0e', 300)
+    put('var.png', 'ffffffff00000001', 1000) // hash-close to big, but a 차분
+    expect(core.tree().dups).toBeNull() // not checked yet
+    let g = await core.duplicates()
+    expect(g.map((x) => x.images.map((i) => i.name))).toEqual([
+      ['big.png', 'small.png'],
+      ['pair1.png', 'pair2.png']
+    ])
+    expect(core.tree().dups).toBe(4)
+    const smallId = g[0].images[1].id
+    expect(await core.runSetAside([smallId]).done).toEqual({ moved: 1, failed: [] })
+    expect(existsSync(small)).toBe(false)
+    expect(existsSync(join(out, '중복', 'small.png'))).toBe(true)
+    expect(core.tree().counts.setAside).toBe(1)
+    expect(core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'name', dir: 'asc', q: '' }).map((i) => i.name)).not.toContain('small.png')
+    g = await core.duplicates()
+    expect(g).toHaveLength(1)
+    core.notDuplicate(g[0].images.map((i) => i.id))
+    expect(await core.duplicates()).toHaveLength(0)
+    await core.undo() // 중복 아님
+    expect(await core.duplicates()).toHaveLength(1)
+    await core.undo() // set aside
+    expect(existsSync(small)).toBe(true)
+    expect(await core.duplicates()).toHaveLength(2)
     core.close()
   })
 })

@@ -5,7 +5,7 @@ import type { ProgressEvent } from '../../shared/types'
 
 export interface JobContext {
   signal: AbortSignal
-  report: (done: number, total: number, label?: string) => void
+  report: (done: number, total: number, label?: string, unit?: 'bytes') => void
 }
 
 export type JobFn<T> = (ctx: JobContext) => Promise<T>
@@ -88,10 +88,10 @@ export class JobQueue {
   }
 
   private async run(e: Entry): Promise<void> {
-    let last = { done: 0, total: 0 }
-    const report = (done: number, total: number, label?: string): void => {
-      last = { done, total }
-      this.emit({ jobId: e.id, label: label ?? e.label, done, total, state: 'running' })
+    let last: { done: number; total: number; unit?: 'bytes' } = { done: 0, total: 0 }
+    const report = (done: number, total: number, label?: string, unit?: 'bytes'): void => {
+      last = { done, total, unit }
+      this.emit({ jobId: e.id, label: label ?? e.label, done, total, unit, state: 'running' })
     }
     this.emit({ jobId: e.id, label: e.label, done: 0, total: 0, state: 'running' })
     try {

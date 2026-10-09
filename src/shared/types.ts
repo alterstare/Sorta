@@ -23,6 +23,8 @@ export interface Thresholds {
   knnAccept: number // learned-character similarity ≥ this (and clear of the runner-up) → auto-confirm
   knnMargin: number // best learned character must beat the second by this much to auto-confirm
   clusterSimilarity: number // unknown images this alike form a group (미확인 묶음)
+  dupDistance: number // pHash bits that may differ for two pictures to count as duplicates
+  dupDetail: number // and no 8×8 area may differ more than this (0–255): keeps 차분 (variants) apart
 }
 
 export interface Settings {
@@ -46,6 +48,14 @@ export interface Settings {
   allowWebLookup: boolean // wiki / LLM lookups by character name (opt-in)
   autoUpdate: boolean
   theme: 'light' | 'dark'
+  wheelNavigate: boolean // 크게 보기: mouse wheel → previous / next image
+  // Library view (kept between sessions)
+  libRatings: RatingPick[] // 분류 filter
+  libRatingsPrev: RatingPick[] | null // selection before "전체" was ticked
+  libSort: SortKey
+  libDir: SortDir
+  libLayout: 'grid' | 'list'
+  thumbSize: 's' | 'm' | 'l'
 }
 
 export interface ProgressEvent {
@@ -53,6 +63,7 @@ export interface ProgressEvent {
   label: string
   done: number
   total: number // 0 = indeterminate
+  unit?: 'bytes' // done/total are bytes (shown as MB)
   state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
   error?: string
 }
@@ -68,6 +79,11 @@ export interface AppInfo {
 
 export type LibraryNode =
   | { type: 'all' }
+  | { type: 'favorite' }
+  | { type: 'group'; id: number }
+  | { type: 'affiliation'; id: number } // its characters' pictures (group shots included), sub-affiliations too
+  | { type: 'dups' } // near-duplicate groups (중복 정리 view)
+  | { type: 'setAside' } // duplicates the user set aside
   | { type: 'series'; id: number }
   | { type: 'character'; id: number }
   | { type: 'pending' } // has a character awaiting review
@@ -76,27 +92,73 @@ export type LibraryNode =
   | { type: 'other' } // marked "캐릭터 아닌 그림"
   | { type: 'unclassified' } // imported, tagger not run yet
 
+export type RatingPick = Exclude<Rating, 'unknown'>
+export type SortKey = 'name' | 'date' | 'type' | 'size'
+export type SortDir = 'asc' | 'desc'
+
 export interface LibraryFilter {
   node: LibraryNode
-  rating: Rating | 'all'
+  ratings: RatingPick[] // all three = no rating filter (unrated images included)
   q: string
+  sort: SortKey
+  dir: SortDir
 }
 
 export interface TreeCharacter {
   id: number
   name: string
   count: number // base character: its images incl. outfit versions
+  shown?: number // with the rating filter (only when it filters something)
   children?: TreeCharacter[] // outfit / version characters (e.g. Ako (Dress))
+}
+// 소속 in the library tree: sub-affiliations, then its characters.
+export interface TreeAffiliation {
+  id: number
+  name: string
+  count: number // pictures with any character of it (or of a sub-affiliation)
+  shown?: number
+  children: TreeAffiliation[]
+  characters: TreeCharacter[]
 }
 export interface TreeSeries {
   id: number
   name: string
   count: number
-  characters: TreeCharacter[]
+  shown?: number
+  affiliations: TreeAffiliation[] // top-level 소속 (조직도 order)
+  characters: TreeCharacter[] // characters without a 소속
+}
+export type TreeCounts = {
+  all: number
+  favorite: number
+  pending: number
+  ratingReview: number
+  unknown: number
+  other: number
+  unclassified: number
+  setAside: number
 }
 export interface LibraryTree {
   series: TreeSeries[]
-  counts: { all: number; pending: number; ratingReview: number; unknown: number; other: number; unclassified: number }
+  groups: { id: number; name: string; count: number; shown?: number }[]
+  counts: TreeCounts
+  shown?: TreeCounts // the same with the rating filter (absent when nothing is filtered)
+  dups: number | null // images in near-duplicate groups (null = not checked yet)
+}
+
+export interface DupGroup {
+  key: string // member ids
+  images: {
+    id: number
+    path: string
+    name: string
+    thumb: string | null
+    width: number | null
+    height: number | null
+    size: number | null
+    rating: Rating
+    characters: string[]
+  }[] // best first (suggested to keep)
 }
 
 export interface ImageItem {
@@ -110,6 +172,13 @@ export interface ImageItem {
   kind: ImageKind
   dupOf: number | null
   error: string | null
+  name: string // file name
+  fileSize: number | null
+  mtime: number | null // file modified (ms)
+  importedAt: number
+  favorite: boolean
+  stars: number // 0–5
+  groups: number[] // fav_groups ids
   // One per detected character: name (null = unknown) and status.
   characters: { id: number | null; name: string | null; series: string | null; status: MatchStatus; confidence: number | null }[]
 }
@@ -184,6 +253,9 @@ export interface LearnPlanInfo {
   known: number
   learned: number
   tooFew: number
+  knownTags: string[] // a tagger already knows them
+  learnedTags: string[] // learned before
+  tooFewTags: { name: string; post_count: number }[] // too few usable pictures
 }
 
 export interface GameOption {
@@ -266,4 +338,24 @@ export interface WikiSuggestion {
 export interface WikiLookupResult {
   wiki: string
   suggestions: WikiSuggestion[]
+}
+
+// 공유 파일 (.sortapack)
+export interface PackExportOptions {
+  seriesIds?: number[] // games to include (default: all)
+  includeLearned: boolean // learned reference vectors
+  includeUserRefs: boolean // vectors from my own confirmed pictures (off by default)
+}
+export interface PackPreview {
+  games: number
+  newGames: number
+  newAffiliations: number
+  newCharacters: number
+  learnedCharacters: number
+  refs: number
+  userRefs: number // references in the file that came from the sender's own pictures
+  conflicts: string[] // "Hina: 내 소속 Gehenna · 파일 Prefect Team"
+  modelMismatch: boolean // learned data made with another model → skipped
+  app: string
+  createdAt: number
 }

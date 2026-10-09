@@ -7,7 +7,7 @@ import type { JSX, ReactNode } from 'react'
 import { useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { GameOption, LearnedCharacter, LearnPlanInfo } from '../../../shared/types'
-import { DeleteIcon, DownloadIcon, PlayIcon, RestartIcon, SearchIcon } from './icons'
+import { CheckIcon, DeleteIcon, DownloadIcon, PlayIcon, RestartIcon, SearchIcon } from './icons'
 
 export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
   const pageRef = useKeptScroll<HTMLDivElement>('learn')
@@ -40,6 +40,8 @@ export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
   const makePlan = async (): Promise<void> => {
     setPlanning(true)
     setPlan(null)
+    setExcluded([])
+    setPlanTab('learn')
     try {
       setPlan(await window.api.learnPlan(gameTag))
     } catch (e) {
@@ -50,6 +52,10 @@ export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
   }
   const isOutfit = (tag: string): boolean => (tag.match(/\(/g) ?? []).length >= 2
   const planList = plan ? plan.learn.filter((t) => !noOutfits || !isOutfit(t.name)) : []
+  // Characters taken out of the plan by the user (default: everyone selected).
+  const [excluded, setExcluded] = useKept<string[]>('learn.excluded', [])
+  const [planTab, setPlanTab] = useKept<'learn' | 'known' | 'learned' | 'tooFew'>('learn.planTab', 'learn')
+  const chosen = planList.filter((t) => !excluded.includes(t.name)).map((t) => t.name)
   const outfitCount = plan ? plan.learn.filter((t) => isOutfit(t.name)).length : 0
   const learn = async (tags: string[]): Promise<void> => {
     showToast(await window.api.learn(tags))
@@ -137,44 +143,102 @@ export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
         </div>
         {plan && (
           <div className="learn-plan">
-            <div className="learn-stats">
-              <span>
-                새로 학습 <b>{planList.length}</b>명{outfitCount > 0 && ` (이격 ${noOutfits ? 0 : outfitCount}명 포함)`}
-              </span>
-              <span>모델이 아는 캐릭터 {plan.known}명</span>
-              <span>학습 완료 {plan.learned}명</span>
-              <span>그림 부족 {plan.tooFew}명</span>
-              {plan.source && <span>출처 {plan.source}</span>}
+            <div className="flat-group learn-tabs">
+              {(
+                [
+                  ['learn', `새로 학습 ${planList.length}`],
+                  ['known', `모델이 아는 캐릭터 ${plan.known}`],
+                  ['learned', `학습 완료 ${plan.learned}`],
+                  ['tooFew', `그림 부족 ${plan.tooFew}`]
+                ] as const
+              ).map(([k, l]) => (
+                <button key={k} className={`mini ${planTab === k ? 'on' : ''}`} onClick={() => setPlanTab(k)}>
+                  {l}
+                </button>
+              ))}
+              {plan.source && <span className="hint">출처 {plan.source}</span>}
             </div>
-            {outfitCount > 0 && (
-              <div className="flat-group">
-                <button className={`mini ${!noOutfits ? 'on' : ''}`} onClick={() => setNoOutfits(false)}>
-                  이격 포함
-                </button>
-                <button className={`mini ${noOutfits ? 'on' : ''}`} onClick={() => setNoOutfits(true)}>
-                  이격 제외 (기본 캐릭터만)
-                </button>
-              </div>
-            )}
-            {planList.length > 0 && (
+            {planTab === 'learn' && (
               <>
-                <div className="chip-row">
-                  {planList.slice(0, 40).map((t) => (
-                    <span key={t.name} className="tag-chip static">
-                      {t.name}
-                      {t.post_count > 0 && <span className="hint"> {t.post_count}</span>}
+                <div className="learn-sel-bar">
+                  {outfitCount > 0 && (
+                    <div className="flat-group">
+                      <button className={`mini ${!noOutfits ? 'on' : ''}`} onClick={() => setNoOutfits(false)}>
+                        이격 포함
+                      </button>
+                      <button className={`mini ${noOutfits ? 'on' : ''}`} onClick={() => setNoOutfits(true)}>
+                        이격 제외 (기본 캐릭터만)
+                      </button>
+                    </div>
+                  )}
+                  <div className="flat-group">
+                    <button className="mini" onClick={() => setExcluded([])}>
+                      전체 선택
+                    </button>
+                    <button className="mini" onClick={() => setExcluded(planList.map((t) => t.name))}>
+                      전체 선택 해제
+                    </button>
+                    <button className="mini" onClick={() => setExcluded(planList.filter((t) => !excluded.includes(t.name)).map((t) => t.name))}>
+                      선택 반전
+                    </button>
+                  </div>
+                  <span className="hint">
+                    {chosen.length} / {planList.length}명 선택 · 눌러서 빼거나 넣기
+                  </span>
+                </div>
+                <div className="chip-row learn-chips">
+                  {planList.map((t) => {
+                    const on = !excluded.includes(t.name)
+                    return (
+                      <button
+                        key={t.name}
+                        className={`tag-chip pick ${on ? 'on' : ''}`}
+                        onClick={() => setExcluded((x) => (on ? [...x, t.name] : x.filter((n) => n !== t.name)))}
+                      >
+                        {on && <CheckIcon />}
+                        {t.name}
+                        {t.post_count > 0 && <span className="hint"> {t.post_count}</span>}
+                      </button>
+                    )
+                  })}
+                  {planList.length === 0 && <span className="row-desc">새로 학습할 캐릭터가 없습니다.</span>}
+                </div>
+                {chosen.length > 0 && (
+                  <>
+                    <div className="row-desc">
+                      캐릭터당 그림 {settings.learnPerCharacter}장 · 예상 다운로드 약 {Math.round((chosen.length * settings.learnPerCharacter * 60) / 1024)}MB · 약{' '}
+                      {Math.ceil((chosen.length * 10) / 60)}분
+                    </div>
+                    <button className="btn primary" disabled={running} onClick={() => void learn(chosen)}>
+                      <PlayIcon />
+                      {chosen.length}명 학습 시작
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+            {planTab !== 'learn' && (
+              <>
+                <div className="row-desc">
+                  {planTab === 'known' && '태거 모델이 이미 알아서 학습하지 않아도 되는 캐릭터입니다.'}
+                  {planTab === 'learned' && '이미 학습한 캐릭터입니다. 아래 "학습한 캐릭터"에서 다시 학습할 수 있습니다.'}
+                  {planTab === 'tooFew' &&
+                    `혼자 나온 그림이 최소 그림 수(${settings.learnMinPosts}장)보다 적어 건너뛰는 캐릭터입니다. 설정에서 최소 그림 수를 낮추면 학습할 수 있습니다. 숫자 = 찾은 그림 수.`}
+                </div>
+                <div className="chip-row learn-chips">
+                  {(planTab === 'known' ? plan.knownTags : planTab === 'learned' ? plan.learnedTags : []).map((n) => (
+                    <span key={n} className="tag-chip static">
+                      {n}
                     </span>
                   ))}
-                  {planList.length > 40 && <span className="hint">외 {planList.length - 40}명</span>}
+                  {planTab === 'tooFew' &&
+                    plan.tooFewTags.map((t) => (
+                      <span key={t.name} className="tag-chip static">
+                        {t.name}
+                        <span className="hint"> {t.post_count}</span>
+                      </span>
+                    ))}
                 </div>
-                <div className="row-desc">
-                  캐릭터당 그림 {settings.learnPerCharacter}장 · 예상 다운로드 약{' '}
-                  {Math.round((planList.length * settings.learnPerCharacter * 60) / 1024)}MB · 약 {Math.ceil((planList.length * 10) / 60)}분
-                </div>
-                <button className="btn primary" disabled={running} onClick={() => void learn(planList.map((t) => t.name))}>
-                  <PlayIcon />
-                  {planList.length}명 학습 시작
-                </button>
               </>
             )}
           </div>

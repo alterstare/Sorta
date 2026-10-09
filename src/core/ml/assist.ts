@@ -6,6 +6,7 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import sharp from 'sharp'
 import type * as Ort from 'onnxruntime-node'
+import { gpuProvider } from './gpu'
 import type { RgbImage } from './types'
 import { CAMIE_SPEC, PIXAI_SPEC } from './models'
 import { csvRow } from './csv'
@@ -33,9 +34,10 @@ async function ort(): Promise<typeof Ort> {
 // (`all`) fusions crash PixAI on DirectML. Falls back to CPU.
 async function openSession(file: string, useGpu: boolean): Promise<Ort.InferenceSession> {
   const o = await ort()
-  if (useGpu && process.platform === 'win32') {
+  const gpu = useGpu ? gpuProvider() : null
+  if (gpu) {
     try {
-      return await o.InferenceSession.create(file, { executionProviders: ['dml', 'cpu'], graphOptimizationLevel: 'basic' })
+      return await o.InferenceSession.create(file, { executionProviders: [gpu, 'cpu'], graphOptimizationLevel: 'basic' })
     } catch {
       /* fall through */
     }

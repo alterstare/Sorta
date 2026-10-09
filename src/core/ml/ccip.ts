@@ -3,6 +3,7 @@
 // a same-character threshold of 0.1785, i.e. cosine ≥ ~0.643.
 import sharp from 'sharp'
 import type * as Ort from 'onnxruntime-node'
+import { gpuProvider } from './gpu'
 import type { Box, Detector, Embedder, RgbImage } from './types'
 
 export const CCIP_SAME_COS = 1 - 2 * 0.17847511429108218 // ≈ 0.643
@@ -15,9 +16,10 @@ async function ort(): Promise<typeof Ort> {
 
 async function openSession(file: string, useGpu: boolean): Promise<Ort.InferenceSession> {
   const o = await ort()
-  if (useGpu && process.platform === 'win32') {
+  const gpu = useGpu ? gpuProvider() : null
+  if (gpu) {
     try {
-      return await o.InferenceSession.create(file, { executionProviders: ['dml', 'cpu'], graphOptimizationLevel: 'basic' })
+      return await o.InferenceSession.create(file, { executionProviders: [gpu, 'cpu'], graphOptimizationLevel: 'basic' })
     } catch {
       /* fall through */
     }

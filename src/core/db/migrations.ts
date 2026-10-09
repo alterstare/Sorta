@@ -145,6 +145,37 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE affiliations ADD COLUMN parent_id INTEGER REFERENCES affiliations(id) ON DELETE SET NULL;
   ALTER TABLE affiliations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE series ADD COLUMN wiki TEXT;
+  `,
+  // v7 — library: file size / modified time (sorting), favorite + 0–5 stars,
+  // user groups (an image can be in several).
+  `
+  ALTER TABLE images ADD COLUMN file_size INTEGER;
+  ALTER TABLE images ADD COLUMN file_mtime INTEGER;
+  ALTER TABLE images ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE images ADD COLUMN stars INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE fav_groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE image_groups (
+    image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    group_id INTEGER NOT NULL REFERENCES fav_groups(id) ON DELETE CASCADE,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (image_id, group_id)
+  );
+  CREATE INDEX image_groups_group ON image_groups(group_id);
+  `,
+  // v8 — 중복 정리: near-duplicates the user set aside (moved to <정리 폴더>/중복,
+  // hidden from the library) and pairs the user said are not duplicates.
+  `
+  ALTER TABLE images ADD COLUMN set_aside INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE not_dup (
+    a INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    b INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    PRIMARY KEY (a, b)
+  );
   `
 ]
 

@@ -6,7 +6,8 @@ import type { JSX, ReactNode } from 'react'
 import { useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { ManagedCharacter } from '../../../shared/types'
-import { CheckIcon, CloseIcon, EditIcon, MergeIcon, SearchIcon } from './icons'
+import { CheckIcon, CloseIcon, EditIcon, MergeIcon, SaveAltIcon, SearchIcon, UploadIcon } from './icons'
+import { ExportDialog, ImportDialog } from './PackDialogs'
 
 type Act = (fn: () => Promise<unknown>, done?: string) => Promise<boolean>
 
@@ -18,6 +19,8 @@ export default function ManageView({ tabs }: { tabs: ReactNode }): JSX.Element {
   const [list, setList] = useKept<ManagedCharacter[]>('manage.list', [])
   const [q, setQ] = useKept('manage.q', '')
   const [sel, setSel] = useKept<number[]>('manage.sel', [])
+  const [packOpen, setPackOpen] = useState<'export' | null>(null)
+  const [importFile, setImportFile] = useState<string | null>(null)
 
   const reload = (): void => void window.api.characters().then(setList)
   useEffect(reload, [libraryVersion])
@@ -62,7 +65,24 @@ export default function ManageView({ tabs }: { tabs: ReactNode }): JSX.Element {
       <div className="page-head">
         <h1>캐릭터</h1>
         {tabs}
+        <span className="spacer" />
+        <div className="flat-group">
+          <button className="mini" title="소속 조직도 · 캐릭터 · 학습 데이터를 공유 파일로 저장" onClick={() => setPackOpen('export')}>
+            <SaveAltIcon />
+            내보내기
+          </button>
+          <button
+            className="mini"
+            title="다른 사람이 내보낸 공유 파일(.sortapack)을 불러오기"
+            onClick={() => void window.api.pickPack().then((f) => f && setImportFile(f))}
+          >
+            <UploadIcon />
+            불러오기
+          </button>
+        </div>
       </div>
+      {packOpen === 'export' && <ExportDialog list={list} onClose={() => setPackOpen(null)} />}
+      {importFile && <ImportDialog file={importFile} onClose={() => setImportFile(null)} />}
       <p className="hint">
         이름 · 별칭 · 게임 · 소속을 고치고, 같은 캐릭터가 둘로 나뉘었으면 합칩니다. 여러 명을 골라 게임이나 소속을 한 번에 바꿀 수 있습니다.
         정리한 그림은 바뀐 폴더로 옮겨집니다.

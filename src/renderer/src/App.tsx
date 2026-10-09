@@ -11,6 +11,7 @@ import Review from './components/Review'
 import LearnView from './components/LearnView'
 import SettingsView from './components/SettingsView'
 import ProgressBar from './components/ProgressBar'
+import { NewGroupDialog } from './components/ImageMenu'
 
 const NAV: [View, string, typeof PhotoLibraryIcon][] = [
   ['library', '라이브러리', PhotoLibraryIcon],
@@ -108,6 +109,7 @@ export default function App(): JSX.Element {
         {view === 'settings' && <SettingsView />}
       </main>
       <ProgressBar />
+      <NewGroupDialog />
       {toast && (
         <div className={`toast ${toast.ok ? '' : 'err'}`}>
           <span>{toast.message}</span>

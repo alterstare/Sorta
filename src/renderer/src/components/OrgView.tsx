@@ -1,5 +1,5 @@
 // 소속 조직도: one game's affiliations as an org chart. Drag a box onto
-// another to put it under it (left / right edge = before / after it), drag
+// another to put it under it (top / bottom edge = before / after it), drag
 // characters between boxes, add / rename / delete boxes. The game's wiki can
 // suggest affiliations (by character name); suggestions apply only when the
 // user accepts them. Every change is one Ctrl+Z step.
@@ -159,7 +159,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
         {tabs}
       </div>
       <p className="hint">
-        상자를 다른 상자 위로 끌면 그 아래 소속이 되고, 상자 왼쪽 · 오른쪽 끝에 놓으면 순서가 바뀝니다. 캐릭터도 끌어서 옮깁니다 (Ctrl+클릭으로 여러
+        상자를 다른 상자 가운데로 끌면 그 아래 소속이 되고, 상자 위 · 아래 끝에 놓으면 순서가 바뀝니다. 캐릭터도 끌어서 옮깁니다 (Ctrl+클릭으로 여러
         명). 정리 폴더는 게임/상위 소속/하위 소속/캐릭터 형태가 됩니다.
       </p>
 
@@ -216,7 +216,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
               <CheckIcon />
               {found.rows.filter((r) => r.on).length}명 적용
             </button>
-            <button className="icon-btn" title="닫기 (적용하지 않음)" onClick={() => setFound(null)}>
+            <button className="icon-btn" title="적용하지 않고 닫기" onClick={() => setFound(null)}>
               <CloseIcon />
             </button>
           </div>
@@ -403,12 +403,13 @@ function Box(p: TreeProps & { n: OrgNode }): JSX.Element {
   const renaming = p.editing?.mode === 'rename' && p.editing.id === n.id
   const where = (e: DragEvent): Drop => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const x = (e.clientX - r.left) / r.width
-    return x < 0.2 ? 'before' : x > 0.8 ? 'after' : 'inside'
+    // siblings are stacked: top / bottom edge = before / after, middle = inside
+    const y = (e.clientY - r.top) / r.height
+    return y < 0.25 ? 'before' : y > 0.75 ? 'after' : 'inside'
   }
   return (
     <div
-      className={`org-box ${hint ? `drop-${hint}` : ''}`}
+      className={`org-box ${chars.length ? '' : 'no-chars'} ${hint ? `drop-${hint}` : ''}`}
       draggable={!renaming}
       onDragStart={(e) => {
         e.dataTransfer.setData(MIME, JSON.stringify({ kind: 'aff', id: n.id } satisfies Drag))
@@ -550,7 +551,7 @@ function PreviewChart({ chart, rows }: { chart: OrgChart; rows: WikiRow[] }): JS
       <ul>
         {list.map((n) => (
           <li key={n.key}>
-            <div className={`org-box preview ${n.isNew ? 'new' : ''}`}>
+            <div className={`org-box preview ${n.isNew ? 'new' : ''} ${(members.get(n.key) ?? []).length ? '' : 'no-chars'}`}>
               <div className="org-head">
                 <span className="org-name">{n.name}</span>
               </div>

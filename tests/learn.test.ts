@@ -56,7 +56,7 @@ describe('learning from user confirmations', () => {
     await core.runClassify().done
     expect(core.tree().counts.unknown).toBe(3)
 
-    const imgs = core.images({ node: { type: 'all' }, rating: 'all', q: '' })
+    const imgs = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
     const id1 = imgs.find((i) => i.path.endsWith('1.png'))!.id
     const aoi = core.createCharacter('Aoi', 'Blue Archive')
     core.confirmCharacters([id1], [aoi])
@@ -64,7 +64,7 @@ describe('learning from user confirmations', () => {
 
     const label = (name: string): string =>
       core
-        .images({ node: { type: 'all' }, rating: 'all', q: '' })
+        .images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
         .find((i) => i.path.endsWith(name))!
         .characters.map((c) => `${c.name}:${c.status}`)
         .join(',')

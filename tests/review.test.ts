@@ -42,7 +42,7 @@ async function setup(): Promise<SortaCore> {
 }
 
 const idOf = (core: SortaCore, name: string): number =>
-  core.images({ node: { type: 'all' }, rating: 'all', q: '' }).find((i) => i.path.endsWith(name))!.id
+  core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).find((i) => i.path.endsWith(name))!.id
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'sorta-'))
@@ -76,7 +76,7 @@ describe('decisions + undo', () => {
     expect(core.reviewQueue('character')).toHaveLength(0)
     const names = (): string[] =>
       core
-        .images({ node: { type: 'all' }, rating: 'all', q: '' })
+        .images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
         .find((i) => i.id === g)!
         .characters.map((c) => `${c.name}:${c.status}`)
         .sort()
@@ -95,13 +95,13 @@ describe('decisions + undo', () => {
     core.markOther([b])
     core.setRating([b], 'general')
     await core.runRedecide().done
-    const img = core.images({ node: { type: 'other' }, rating: 'all', q: '' })
+    const img = core.images({ node: { type: 'other' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
     expect(img.map((i) => [i.id, i.rating, i.ratingReview])).toEqual([[b, 'general', false]])
     expect(core.reviewQueue('rating')).toHaveLength(0)
     await core.undo() // rating
     expect(core.reviewQueue('rating')).toHaveLength(1)
     await core.undo() // 캐릭터 아님
-    expect(core.images({ node: { type: 'other' }, rating: 'all', q: '' })).toHaveLength(0)
+    expect(core.images({ node: { type: 'other' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })).toHaveLength(0)
     expect(await core.undo()).toEqual({ ok: true, label: null })
     core.close()
   })
@@ -156,15 +156,15 @@ describe('outfit versions', () => {
     await solid(join(src, 'g.png'), [0, 255, 0])
     await core.runImport().done
     await core.runClassify().done
-    const all = core.images({ node: { type: 'all' }, rating: 'all', q: '' })
+    const all = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
     expect(all.find((i) => i.path.endsWith('r.png'))!.characters.map((c) => c.name)).toEqual(['Ako (Dress)'])
     const ba = core.tree().series.find((s) => s.name === 'Blue Archive')!
     expect(ba.characters.map((c) => [c.name, c.count, c.children?.map((v) => [v.name, v.count])])).toEqual([
       ['Ako', 2, [['Ako (Dress)', 1]]]
     ])
     const ako = ba.characters[0]
-    expect(core.images({ node: { type: 'character', id: ako.id }, rating: 'all', q: '' })).toHaveLength(2)
-    expect(core.images({ node: { type: 'character', id: ako.children![0].id }, rating: 'all', q: '' })).toHaveLength(1)
+    expect(core.images({ node: { type: 'character', id: ako.id }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })).toHaveLength(2)
+    expect(core.images({ node: { type: 'character', id: ako.children![0].id }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })).toHaveLength(1)
     core.close()
   })
 })
@@ -189,7 +189,7 @@ describe('outfit candidates in review', () => {
     await core.runClassify().done
     const { ensureCharacter } = await import('../src/core/pipeline/classify')
     const dress = ensureCharacter(core.db, 'ako_(dress)_(blue_archive)')
-    const img = core.images({ node: { type: 'all' }, rating: 'all', q: '' })[0].id
+    const img = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })[0].id
     core.db
       .prepare("INSERT INTO image_characters (image_id, character_id, status, source, confidence, candidates) VALUES (?, ?, 'pending', 'auto', 0.6, ?)")
       .run(img, dress, JSON.stringify([{ characterId: dress, score: 0.6 }]))
@@ -224,6 +224,49 @@ describe('autocomplete: characters the taggers know', () => {
     const again = await core.searchCharacters('lux')
     expect(again[0]).toMatchObject({ id: lux.id, name: 'Lux' })
     expect(again.filter((h) => h.name === 'Lux')).toHaveLength(1)
+    core.close()
+  })
+})
+
+describe('library: rating filter counts, sorting, favorites / stars / groups', () => {
+  it('counts per node with the rating filter and undoes collection edits', async () => {
+    const core = new SortaCore(':memory:')
+    const ins = core.db.prepare(
+      "INSERT INTO images (path, sha256, imported_at, rating, file_size, file_mtime, classified_at) VALUES (?, ?, ?, ?, ?, ?, 1)"
+    )
+    ins.run('C:/x/b.png', 'b', 1, 'general', 300, 30)
+    ins.run('C:/x/a10.jpg', 'a10', 2, 'r18', 100, 10)
+    ins.run('C:/x/a2.png', 'a2', 3, 'sensitive', 200, 20)
+    const F = (o: object) => ({ node: { type: 'all' as const }, ratings: ['general', 'sensitive', 'r18'] as const, sort: 'name' as const, dir: 'asc' as const, q: '', ...o })
+    const names = (o: object): string[] => core.images(F(o) as never).map((i) => i.name)
+    expect(names({})).toEqual(['a2.png', 'a10.jpg', 'b.png']) // numeric name order
+    expect(names({ sort: 'size', dir: 'desc' })).toEqual(['b.png', 'a2.png', 'a10.jpg'])
+    expect(names({ sort: 'type' })).toEqual(['a10.jpg', 'a2.png', 'b.png'])
+    expect(names({ ratings: ['general', 'sensitive'] })).toEqual(['a2.png', 'b.png'])
+    const t = core.tree(['general'])
+    expect(t.counts.all).toBe(3)
+    expect(t.shown?.all).toBe(1)
+    expect(core.tree().shown).toBeUndefined()
+
+    const ids = core.images(F({}) as never).map((i) => i.id)
+    core.setFavorite([ids[0]], true)
+    core.setStars([ids[0], ids[1]], 4)
+    const g = core.createGroup('최애', [ids[2]])
+    core.setGroupMembership([ids[0]], g, true)
+    expect(core.tree().counts.favorite).toBe(1)
+    expect(core.tree().groups).toEqual([{ id: g, name: '최애', count: 2, shown: undefined }])
+    expect(names({ node: { type: 'group', id: g } })).toEqual(['a2.png', 'b.png'])
+    expect(() => core.createGroup('최애')).toThrow()
+    core.deleteGroup(g)
+    expect(core.tree().groups).toHaveLength(0)
+    await core.undo() // group back with its members
+    expect(core.tree().groups[0]).toMatchObject({ name: '최애', count: 2 })
+    await core.undo() // membership
+    await core.undo() // creation
+    expect(core.tree().groups).toHaveLength(0)
+    await core.undo() // stars
+    expect(core.images(F({}) as never).map((i) => i.stars)).toEqual([0, 0, 0])
+    expect(core.images(F({}) as never)[0].favorite).toBe(true)
     core.close()
   })
 })

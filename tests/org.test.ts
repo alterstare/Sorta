@@ -144,3 +144,108 @@ describe('wikitext', () => {
     expect(targetDir(img([1, 2]), chars, s)!.split(/[\\/]/)).toEqual(['G', 'School'])
   })
 })
+
+describe('library tree: 소속 levels', () => {
+  it('nests 소속 under the game, counts group shots once, lists them under the 소속', () => {
+    const core = new SortaCore(':memory:')
+    const hoshino = core.createCharacter('Hoshino', 'Blue Archive')
+    const shiroko = core.createCharacter('Shiroko', 'Blue Archive')
+    const hina = core.createCharacter('Hina', 'Blue Archive')
+    const abydos = core.addAffiliation('Blue Archive', 'Abydos', null)
+    const club = core.addAffiliation('Blue Archive', 'Countermeasure', abydos)
+    core.placeCharacters([hoshino], club)
+    core.placeCharacters([shiroko], abydos)
+    const img = core.db.prepare("INSERT INTO images (path, sha256, imported_at, rating) VALUES (?, ?, 1, 'general')")
+    const tag = core.db.prepare("INSERT INTO image_characters (image_id, character_id, status, source) VALUES (?, ?, 'confirmed', 'user')")
+    const add = (name: string, ...chars: number[]): void => {
+      const id = Number(img.run(`C:/x/${name}`, name).lastInsertRowid)
+      for (const c of chars) tag.run(id, c)
+    }
+    add('h.png', hoshino)
+    add('duo.png', hoshino, shiroko) // group shot
+    add('hina.png', hina)
+    const s = core.tree().series[0]
+    expect(s.characters.map((c) => c.name)).toEqual(['Hina'])
+    expect(s.affiliations).toHaveLength(1)
+    const ab = s.affiliations[0]
+    expect([ab.name, ab.count]).toEqual(['Abydos', 2]) // h + duo, duo once
+    expect(ab.characters.map((c) => c.name)).toEqual(['Shiroko'])
+    expect([ab.children[0].name, ab.children[0].count, ab.children[0].characters[0].name]).toEqual(['Countermeasure', 2, 'Hoshino'])
+    const names = (id: number): string[] =>
+      core
+        .images({ node: { type: 'affiliation', id }, ratings: ['general', 'sensitive', 'r18'], sort: 'name', dir: 'asc', q: '' })
+        .map((i) => i.name)
+    expect(names(abydos)).toEqual(['duo.png', 'h.png'])
+    expect(names(club)).toEqual(['duo.png', 'h.png'])
+    core.close()
+  })
+})
+
+describe('공유 파일 (.sortapack)', () => {
+  it('exports games / 소속 / characters / learned refs and merges them into another library', async () => {
+    const { mkdtempSync, rmSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const dir = mkdtempSync(join(tmpdir(), 'sorta-pack-'))
+    const file = join(dir, 'ba.sortapack')
+    const vec = (x: number): Buffer => Buffer.from(new Float32Array(768).fill(x).buffer)
+
+    const a = new SortaCore(':memory:')
+    const hoshino = a.createCharacter('Hoshino', 'Blue Archive')
+    const swim = a.createCharacter('Hoshino (Swimsuit)', 'Blue Archive')
+    a.db.prepare('UPDATE characters SET danbooru_tag = ?, parent_id = ? WHERE id = ?').run('hoshino_(swimsuit)_(blue_archive)', hoshino, swim)
+    const hina = a.createCharacter('Hina', 'Blue Archive')
+    a.applyAffiliations('Blue Archive', [
+      { characterId: hoshino, path: ['Abydos', 'Countermeasure'] },
+      { characterId: hina, path: ['Gehenna', 'Prefect Team'] }
+    ])
+    const ref = a.db.prepare('INSERT INTO refs (character_id, source, post_id, image_id, vector, created_at) VALUES (?, ?, ?, NULL, ?, 1)')
+    ref.run(hoshino, 'booru', 101, vec(0.5))
+    ref.run(hoshino, 'booru', 102, vec(0.25))
+    ref.run(hoshino, 'user', null, vec(0.75)) // from my own picture: left out by default
+    a.db.prepare("INSERT INTO learned (character_id, tag, refs, learned_at) VALUES (?, 'hoshino_(blue_archive)', 2, 5)").run(hoshino)
+    await a.exportPack(file, '0.1.0', { includeLearned: true, includeUserRefs: false })
+
+    // The receiver already has Hina, in Gehenna only.
+    const b = new SortaCore(':memory:')
+    const bHina = b.createCharacter('Hina', 'Blue Archive')
+    const geh = b.addAffiliation('Blue Archive', 'Gehenna', null)
+    b.placeCharacters([bHina], geh)
+    const pv = await b.previewPack(file, { overwrite: false, learned: true })
+    expect(pv).toMatchObject({ games: 1, newGames: 0, newCharacters: 2, learnedCharacters: 1, refs: 2, userRefs: 0, modelMismatch: false })
+    expect(pv.newAffiliations).toBe(3) // Abydos, Countermeasure, Prefect Team
+    expect(pv.conflicts).toEqual(['Hina: 내 소속 Gehenna · 파일 Prefect Team'])
+    await b.importPack(file, { overwrite: false, learned: true })
+    const chart = b.orgChart('Blue Archive')
+    const name = (id: number | null): string | undefined => chart.nodes.find((n) => n.id === id)?.name
+    const byName = (n: string) => chart.characters.find((c) => c.name === n)!
+    expect(name(byName('Hoshino').affiliationId)).toBe('Countermeasure')
+    expect(name(byName('Hina').affiliationId)).toBe('Gehenna') // mine kept
+    expect(name(chart.nodes.find((n) => n.name === 'Countermeasure')!.parentId)).toBe('Abydos')
+    const bHoshino = byName('Hoshino').id
+    const refs = b.db.prepare('SELECT post_id, vector FROM refs WHERE character_id = ? ORDER BY post_id').all(bHoshino) as { post_id: number; vector: Buffer }[]
+    expect(refs.map((r) => r.post_id)).toEqual([101, 102])
+    expect(new Float32Array(refs[0].vector.buffer, refs[0].vector.byteOffset, 768)[0]).toBeCloseTo(0.5, 3)
+    expect(b.learned().map((l) => [l.name, l.refs])).toEqual([['Hoshino', 2]])
+    // variant link survives
+    expect(b.db.prepare('SELECT parent_id FROM characters WHERE danbooru_tag = ?').get('hoshino_(swimsuit)_(blue_archive)')).toEqual({ parent_id: bHoshino })
+    // importing again adds nothing new
+    expect((await b.previewPack(file, { overwrite: false, learned: true })).newCharacters).toBe(0)
+    // overwrite: Hina moves to the file's 소속
+    await b.importPack(file, { overwrite: true, learned: true })
+    expect(name(b.orgChart('Blue Archive').characters.find((c) => c.name === 'Hina')!.affiliationId)).toBe('Prefect Team')
+    await b.undo()
+    await b.undo() // whole first import gone
+    const after = b.orgChart('Blue Archive')
+    expect(after.characters.map((c) => c.name)).toEqual(['Hina'])
+    expect(after.nodes.map((n) => n.name)).toEqual(['Gehenna'])
+    expect(b.learned()).toEqual([])
+
+    // with my own pictures' vectors
+    await a.exportPack(file, '0.1.0', { includeLearned: true, includeUserRefs: true })
+    expect((await b.previewPack(file, { overwrite: false, learned: true })).userRefs).toBe(1)
+    a.close()
+    b.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

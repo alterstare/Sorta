@@ -95,7 +95,7 @@ function settledImages(db: Db, where: string): {
   organized_path: string | null
   rows: { character_id: number | null; status: string }[]
 }[] {
-  const imgs = db.prepare(`SELECT id, path, kind, rating, organized_path FROM images WHERE ${where}`).all() as {
+  const imgs = db.prepare(`SELECT id, path, kind, rating, organized_path FROM images WHERE set_aside = 0 AND ${where}`).all() as {
     id: number
     path: string
     kind: string
@@ -110,7 +110,7 @@ const sameDir = (a: string, b: string): boolean =>
   process.platform === 'win32' ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b)
 
 // Unique file name in `dir`, also avoiding names already claimed by this plan.
-function uniqueTarget(dir: string, file: string, claimed: Set<string>): string {
+export function uniqueTarget(dir: string, file: string, claimed: Set<string>): string {
   const ext = extname(file)
   const stem = basename(file, ext)
   for (let n = 1; ; n++) {
@@ -153,7 +153,7 @@ export function planOrganize(db: Db, s: Settings, onlyOrganized = false): Organi
 }
 
 // Move one file; across drives: copy, verify size, then remove the source.
-async function moveFile(from: string, to: string): Promise<void> {
+export async function moveFile(from: string, to: string): Promise<void> {
   await fs.mkdir(dirname(to), { recursive: true })
   try {
     await fs.rename(from, to)

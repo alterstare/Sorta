@@ -7,6 +7,10 @@ import type {
   ClusterResult,
   ManagedCharacter,
   OrganizePlan,
+  PackExportOptions,
+  PackPreview,
+  DupGroup,
+  RatingPick,
   OrgChart,
   WikiLookupResult,
   GameOption,
@@ -35,7 +39,12 @@ import { importImages } from './pipeline/importer'
 import type { ImportResult } from './pipeline/importer'
 import { assistPending, classifyPending, redecideAll } from './pipeline/classify'
 import type { ClassifyResult, DecideOptions } from './pipeline/classify'
-import { libraryTree, listImages } from './library'
+import { fillFileStats, libraryTree, listImages } from './library'
+import * as collect from './collect'
+import * as dupes from './dupes'
+import * as pack from './pack'
+import { promises as fsp } from 'fs'
+import type { GrayLoader } from './dupes'
 import * as review from './review'
 import * as organize from './organize'
 import * as manage from './manage'
@@ -78,6 +87,7 @@ export interface CoreOptions {
   wikiGet?: JsonGet // tests answer wiki requests
   wikiGapMs?: number
   vocabTags?: string[] // tests: what the taggers know
+  grayLoader?: GrayLoader // tests: 64×64 grays for the duplicate detail check
 }
 
 export class SortaCore {
@@ -116,6 +126,9 @@ export class SortaCore {
     organize.registerOrganizeUndo(this.log, this.db)
     manage.registerManageUndo(this.log, this.db)
     org.registerOrgUndo(this.log, this.db)
+    collect.registerCollectUndo(this.log, this.db)
+    dupes.registerDupUndo(this.log, this.db)
+    pack.registerPackUndo(this.log, this.db)
     this.checkPipelineRev()
   }
 
@@ -239,7 +252,7 @@ export class SortaCore {
       const s = this.settings()
       return importImages(
         this.db,
-        { sourceDirs: s.sourceDirs, exclude: [s.organizeDir], thumbsDir: this.paths.thumbsDir },
+        { sourceDirs: s.sourceDirs, exclude: [s.organizeDir], thumbsDir: this.paths.thumbsDir, dupDistance: s.thresholds.dupDistance },
         ctx
       )
     })
@@ -543,8 +556,94 @@ export class SortaCore {
 
   // ---- library ----
 
-  tree(): LibraryTree {
-    return libraryTree(this.db)
+  // `ratings`: the library's rating filter → each count also shown filtered.
+  tree(ratings?: RatingPick[]): LibraryTree {
+    return libraryTree(this.db, ratings, this.dupCount())
+  }
+
+  // ---- 공유 파일 (.sortapack) ----
+
+  async exportPack(file: string, appVersion: string, o: PackExportOptions): Promise<number> {
+    const buf = pack.exportPack(this.db, appVersion, o)
+    await fsp.writeFile(file, buf)
+    return buf.length
+  }
+  // What importing `file` would do (nothing is changed).
+  async previewPack(file: string, o: { overwrite: boolean; learned: boolean }): Promise<PackPreview> {
+    return pack.planImport(this.db, pack.readPack(await fsp.readFile(file)), o).preview
+  }
+  async importPack(file: string, o: { overwrite: boolean; learned: boolean }): Promise<PackPreview> {
+    return pack.importPack(this.db, this.log, pack.readPack(await fsp.readFile(file)), o)
+  }
+
+  // ---- 중복 정리 ----
+
+  // Near-duplicate groups; cached until images / set-aside / 중복 아님 /
+  // thresholds change. The first check reads thumbnails (a few seconds).
+  private dupCache: { key: string; groups: DupGroup[] } | null = null
+  private dupRun: { key: string; p: Promise<DupGroup[]> } | null = null
+  private dupKey(): string {
+    const k = this.db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM images) || ':' || (SELECT COALESCE(MAX(id), 0) FROM images) || ':' ||
+                (SELECT COUNT(*) FROM images WHERE set_aside = 1) || ':' || (SELECT COUNT(*) FROM not_dup) || ':' ||
+                (SELECT COALESCE(SUM(id), 0) FROM images WHERE phash IS NOT NULL) AS k`
+      )
+      .get() as { k: string }
+    const t = this.settings().thresholds
+    return `${k.k}:${t.dupDistance}:${t.dupDetail}`
+  }
+  async duplicates(): Promise<DupGroup[]> {
+    const key = this.dupKey()
+    if (this.dupCache?.key === key) return this.dupCache.groups
+    if (this.dupRun?.key !== key) {
+      const t = this.settings().thresholds
+      const p = this.queue
+        .add('중복 확인', () => dupes.duplicateGroups(this.db, t.dupDistance, t.dupDetail, this.opts.grayLoader))
+        .done.then((groups) => ((this.dupCache = { key, groups }), groups))
+      this.dupRun = { key, p }
+    }
+    return this.dupRun.p
+  }
+  // Images in duplicate groups, when known (the tree shows it).
+  private dupCount(): number | null {
+    return this.dupCache && this.dupCache.key === this.dupKey() ? this.dupCache.groups.reduce((n, g) => n + g.images.length, 0) : null
+  }
+  // Move duplicates to <정리 폴더>/중복 (hidden from the library). One undo step.
+  runSetAside(ids: number[]): { id: number; done: Promise<{ moved: number; failed: string[] }> } {
+    return this.queue.add('중복 따로 두기', () => dupes.setAside(this.db, this.log, ids, this.settings().organizeDir))
+  }
+  notDuplicate(ids: number[]): void {
+    dupes.markNotDuplicate(this.db, this.log, ids)
+  }
+
+  // File size / modified time of images that lack them (sorting by 크기 / 날짜).
+  runFileStats(): { id: number; done: Promise<number> } {
+    return this.queue.add('파일 정보 확인', () => fillFileStats(this.db))
+  }
+
+  // ---- 즐겨찾기 · 평점 · 그룹 (each change is one undo step) ----
+
+  setFavorite(ids: number[], on: boolean): void {
+    collect.setFavorite(this.db, this.log, ids, on)
+  }
+  setStars(ids: number[], stars: number): void {
+    collect.setStars(this.db, this.log, ids, stars)
+  }
+  groups(): { id: number; name: string }[] {
+    return collect.listGroups(this.db)
+  }
+  createGroup(name: string, ids?: number[]): number {
+    return collect.createGroup(this.db, this.log, name, ids)
+  }
+  renameGroup(id: number, name: string): void {
+    collect.renameGroup(this.db, this.log, id, name)
+  }
+  deleteGroup(id: number): void {
+    collect.deleteGroup(this.db, this.log, id)
+  }
+  setGroupMembership(ids: number[], groupId: number, on: boolean): void {
+    collect.setGroupMembership(this.db, this.log, ids, groupId, on)
   }
 
   images(f: LibraryFilter): ImageItem[] {

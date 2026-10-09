@@ -15,7 +15,9 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   knnCandidate: 0.64,
   knnAccept: 0.75,
   knnMargin: 0.1,
-  clusterSimilarity: 0.72
+  clusterSimilarity: 0.72,
+  dupDistance: 6,
+  dupDetail: 5
 }
 
 // Character tags that are not "characters" for sorting (player avatar, mascots).

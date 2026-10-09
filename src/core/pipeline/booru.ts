@@ -47,6 +47,10 @@ export interface LearnPlan {
   known: number // a tagger already knows them
   learned: number // learned before
   tooFew: number // fewer solo pictures than needed
+  // The same, by name (the 학습 screen lists them)
+  knownTags: string[]
+  learnedTags: string[]
+  tooFewTags: BooruTag[] // post_count = usable pictures found (or total posts when pre-filtered)
 }
 
 let last = 0
@@ -163,14 +167,14 @@ export async function planGame(
   ctx?: { signal?: AbortSignal; report?: (done: number, total: number, label?: string) => void }
 ): Promise<LearnPlan> {
   const learnedTags = new Set((db.prepare('SELECT tag FROM learned').all() as { tag: string }[]).map((r) => r.tag))
-  const plan: LearnPlan = { seriesTag, learn: [], known: 0, learned: 0, tooFew: 0 }
+  const plan: LearnPlan = { seriesTag, learn: [], known: 0, learned: 0, tooFew: 0, knownTags: [], learnedTags: [], tooFewTags: [] }
   const todo: BooruTag[] = []
   for (const t of await gameCharacters(src, seriesTag, seriesMap, ctx?.signal)) {
     if (ignored.includes(t.name)) continue
-    if (known.has(t.name)) plan.known++
-    else if (learnedTags.has(t.name)) plan.learned++
+    if (known.has(t.name)) (plan.known++, plan.knownTags.push(t.name))
+    else if (learnedTags.has(t.name)) (plan.learned++, plan.learnedTags.push(t.name))
     // Cheap pre-filter: fewer posts in total than needed can't have enough usable ones.
-    else if (t.post_count >= 0 && t.post_count < minPosts) plan.tooFew++
+    else if (t.post_count >= 0 && t.post_count < minPosts) (plan.tooFew++, plan.tooFewTags.push(t))
     else todo.push(t)
   }
   // The real check: how many usable (solo, all-ages) pictures each one has.
@@ -178,10 +182,13 @@ export async function planGame(
     if (ctx?.signal?.aborted) break
     ctx?.report?.(i, todo.length, `그림 수 확인 · ${todo[i].name}`)
     const n = await usableCount(src, todo[i].name, ctx?.signal)
-    if (n < minPosts) plan.tooFew++
+    if (n < minPosts) (plan.tooFew++, plan.tooFewTags.push({ name: todo[i].name, post_count: n }))
     else plan.learn.push({ name: todo[i].name, post_count: n })
   }
   plan.learn.sort((a, b) => b.post_count - a.post_count)
+  plan.tooFewTags.sort((a, b) => b.post_count - a.post_count)
+  plan.knownTags.sort()
+  plan.learnedTags.sort()
   return plan
 }
 
