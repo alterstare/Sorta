@@ -26,6 +26,7 @@ import Viewer from './Viewer'
 import SelectionBar from './SelectionBar'
 import DropMenu, { MenuOption, MenuSection } from './DropMenu'
 import DupView from './DupView'
+import Setup from './Setup'
 
 const ALL: RatingPick[] = ['general', 'sensitive', 'r18']
 const RATING_NAMES: [RatingPick, string][] = [
@@ -90,6 +91,10 @@ export default function Library(): JSX.Element {
   }
 
   const empty = tree && tree.counts.all === 0
+  // 처음 쓸 때 (no model yet, or nothing imported and no folder): the setup steps.
+  const models = useStore((s) => s.models)
+  const needSetup = models.length > 0 && (!models.find((m) => m.id === 'wd')?.installed || (!!empty && !settings?.sourceDirs.length))
+  if (needSetup) return <Setup />
   return (
     <div className="library">
       <Tree />

@@ -172,3 +172,22 @@ describe('mock models', () => {
     expect(Array.from(a)).toEqual(Array.from(b))
   })
 })
+
+describe('shared data folder', () => {
+  it('refuses a database made by a newer Sorta (does not migrate or touch it)', async () => {
+    const { mkdtempSync, rmSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const Database = (await import('better-sqlite3')).default
+    const { NewerDataError, MIGRATIONS } = await import('../src/core/db')
+    const dir = mkdtempSync(join(tmpdir(), 'sorta-newer-'))
+    const db = new Database(join(dir, 'sorta.db'))
+    db.pragma(`user_version = ${MIGRATIONS.length + 1}`)
+    db.close()
+    expect(() => new SortaCore(dir)).toThrow(NewerDataError)
+    const again = new Database(join(dir, 'sorta.db'))
+    expect(again.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length + 1)
+    again.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

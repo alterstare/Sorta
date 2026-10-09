@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
+import { embedded } from '../embed'
 import type { AssistMode, ModelId, Thresholds } from '../../../shared/types'
 import { AddIcon, CheckIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, PlayIcon, RestartIcon, UndoIcon } from './icons'
 import Stepper from './Stepper'
@@ -20,12 +21,26 @@ const THRESHOLDS: [keyof Thresholds, string, string, number, number, number][] =
   ['assistAccept', 'PixAI 단독 확정 점수', '기본 모델이 모르는 캐릭터를 PixAI가 이 값 이상으로 보면 확정합니다.', 0.05, 0.5, 1],
   ['agreeMin', '두 모델 일치 점수', '두 모델이 같은 캐릭터를 둘 다 이 값 이상으로 보면 확정합니다.', 0.05, 0.1, 1],
   ['camieSoloMin', 'Camie 단독 후보 점수', 'Camie만 본 캐릭터는 이 값 이상일 때만 검토에 올립니다 (확정은 하지 않습니다).', 0.05, 0.25, 1],
-  ['knnCandidate', '학습 캐릭터 후보 유사도', '학습한 캐릭터와 이 값 이상 닮으면 후보로 올립니다 (같은 캐릭터 기준 약 0.64).', 0.01, 0.3, 1],
+  [
+    'knnCandidate',
+    '학습 캐릭터 후보 유사도',
+    '학습한 캐릭터와 이 값 이상 닮으면 후보로 올립니다 (같은 캐릭터 기준 약 0.64).',
+    0.01,
+    0.3,
+    1
+  ],
   ['knnAccept', '학습 캐릭터 확정 유사도', '학습한 캐릭터와 이 값 이상 닮고 2등과 충분히 차이 나면 확정합니다.', 0.01, 0.5, 1],
   ['knnMargin', '학습 캐릭터 1·2등 차이', '확정하려면 가장 닮은 캐릭터가 두 번째보다 이만큼 더 닮아야 합니다.', 0.01, 0, 0.5],
   ['clusterSimilarity', '미확인 묶음 유사도', '미확인 그림끼리 이 값 이상 닮으면 한 묶음으로 보여줍니다.', 0.01, 0.5, 0.95],
   ['dupDistance', '중복 판정 거리', '두 그림의 지문(pHash 64칸)이 이 칸 수 이하로 다르면 중복으로 봅니다. 작을수록 엄격합니다.', 1, 0, 20],
-  ['dupDetail', '중복 세부 차이', '비슷해 보여도 작은 부분(표정 · 검열 등)이 이 값보다 다르면 차분으로 보고 중복에서 뺍니다. 클수록 너그럽습니다.', 1, 0, 40],
+  [
+    'dupDetail',
+    '중복 세부 차이',
+    '비슷해 보여도 작은 부분(표정 · 검열 등)이 이 값보다 다르면 차분으로 보고 중복에서 뺍니다. 클수록 너그럽습니다.',
+    1,
+    0,
+    40
+  ],
   ['groupThreshold', '단체 폴더 인원', '같은 게임에서 이 인원 이상이면 단체 폴더로 (정리 단계에서 사용).', 1, 2, 20]
 ]
 const ASSIST: [AssistMode, string, ModelId[], string][] = [
@@ -58,7 +73,9 @@ export default function SettingsView(): JSX.Element {
       const st = useStore.getState()
       const d = st.kept['settings.thresholdsDraft'] as Thresholds | null | undefined
       if (!d || !st.settings) return
-      useStore.setState((x) => ({ kept: { ...x.kept, 'settings.thresholdsDraft': null } }))
+      useStore.setState((x) => ({
+        kept: { ...x.kept, 'settings.thresholdsDraft': null }
+      }))
       if (JSON.stringify(d) !== JSON.stringify(st.settings.thresholds)) {
         void st.saveSettings({ thresholds: d }).then(() => st.showToast({ ok: true, message: '바뀐 분류 기준을 적용합니다' }))
       }
@@ -125,7 +142,11 @@ export default function SettingsView(): JSX.Element {
               </button>
               <button
                 className="mini"
-                onClick={() => void saveSettings({ sourceDirs: settings.sourceDirs.filter((x) => x !== d) })}
+                onClick={() =>
+                  void saveSettings({
+                    sourceDirs: settings.sourceDirs.filter((x) => x !== d)
+                  })
+                }
               >
                 <DeleteIcon />
                 제거
@@ -153,7 +174,11 @@ export default function SettingsView(): JSX.Element {
           </div>
           <div className="flat-group">
             {[true, false].map((v) => (
-              <button key={String(v)} className={`mini ${settings.watch === v ? 'on' : ''}`} onClick={() => void saveSettings({ watch: v })}>
+              <button
+                key={String(v)}
+                className={`mini ${settings.watch === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ watch: v })}
+              >
                 {v ? '켜기' : '끄기'}
               </button>
             ))}
@@ -163,9 +188,7 @@ export default function SettingsView(): JSX.Element {
           <div className="row-text">
             <div className="row-title">가져오기</div>
             <div className="row-desc">새 이미지를 가져오고, 모델이 있으면 바로 분류합니다.</div>
-            {(tree?.counts.unclassified ?? 0) > 0 && (
-              <div className="row-desc">분류 전 이미지 {tree?.counts.unclassified}장</div>
-            )}
+            {(tree?.counts.unclassified ?? 0) > 0 && <div className="row-desc">분류 전 이미지 {tree?.counts.unclassified}장</div>}
           </div>
           <div className="flat-group">
             <button
@@ -207,7 +230,9 @@ export default function SettingsView(): JSX.Element {
               <div className="row-text">
                 <div className="row-title">{m.label}</div>
                 <div className="row-desc">
-                  {m.installed ? `설치 완료 · ${mb(m.bytes)}` : `${id === 'wd' ? '받아야 분류 기능을 쓸 수 있습니다' : '선택 설치'} · 약 ${mb(m.totalBytes)}`}
+                  {m.installed
+                    ? `설치 완료 · ${mb(m.bytes)}`
+                    : `${id === 'wd' ? '받아야 분류 기능을 쓸 수 있습니다' : '선택 설치'} · 약 ${mb(m.totalBytes)}`}
                   {' · '}
                   {m.license}
                   {m.note && <div>{m.note}</div>}
@@ -259,11 +284,17 @@ export default function SettingsView(): JSX.Element {
         <div className="row">
           <div className="row-text">
             <div className="row-title">외부 조회 허용</div>
-            <div className="row-desc">캐릭터 학습(참고 그림 받기)과 소속 위키 조회에 캐릭터 이름만 보냅니다. 내 그림은 밖으로 보내지 않습니다.</div>
+            <div className="row-desc">
+              캐릭터 학습(참고 그림 받기)과 소속 위키 조회에 캐릭터 이름만 보냅니다. 내 그림은 밖으로 보내지 않습니다.
+            </div>
           </div>
           <div className="flat-group">
             {[true, false].map((v) => (
-              <button key={String(v)} className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`} onClick={() => void saveSettings({ allowWebLookup: v })}>
+              <button
+                key={String(v)}
+                className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ allowWebLookup: v })}
+              >
                 {v ? '허용' : '차단'}
               </button>
             ))}
@@ -279,7 +310,11 @@ export default function SettingsView(): JSX.Element {
           </div>
           <div className="flat-group">
             {(['danbooru', 'safebooru'] as const).map((v) => (
-              <button key={v} className={`mini ${settings.booruSource === v ? 'on' : ''}`} onClick={() => void saveSettings({ booruSource: v })}>
+              <button
+                key={v}
+                className={`mini ${settings.booruSource === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ booruSource: v })}
+              >
                 {v === 'danbooru' ? 'Danbooru' : 'Safebooru'}
               </button>
             ))}
@@ -288,11 +323,17 @@ export default function SettingsView(): JSX.Element {
         <div className="row">
           <div className="row-text">
             <div className="row-title">민감 등급 그림도 학습에 사용</div>
-            <div className="row-desc">수영복·바니 같은 복장은 대부분 민감 등급입니다. 참고 그림은 특징만 뽑고 저장하지 않습니다. (Danbooru 전용)</div>
+            <div className="row-desc">
+              수영복·바니 같은 복장은 대부분 민감 등급입니다. 참고 그림은 특징만 뽑고 저장하지 않습니다. (Danbooru 전용)
+            </div>
           </div>
           <div className="flat-group">
             {[true, false].map((v) => (
-              <button key={String(v)} className={`mini ${settings.learnSensitive === v ? 'on' : ''}`} onClick={() => void saveSettings({ learnSensitive: v })}>
+              <button
+                key={String(v)}
+                className={`mini ${settings.learnSensitive === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ learnSensitive: v })}
+              >
                 {v ? '사용' : '미사용'}
               </button>
             ))}
@@ -303,7 +344,13 @@ export default function SettingsView(): JSX.Element {
             <div className="row-title">참고 그림 수</div>
             <div className="row-desc">캐릭터 하나를 학습할 때 받는 참고 그림 수입니다. 많을수록 정확하지만 오래 걸립니다.</div>
           </div>
-          <Stepper value={settings.learnPerCharacter} min={5} max={100} step={5} onChange={(v) => void saveSettings({ learnPerCharacter: v })} />
+          <Stepper
+            value={settings.learnPerCharacter}
+            min={5}
+            max={100}
+            step={5}
+            onChange={(v) => void saveSettings({ learnPerCharacter: v })}
+          />
         </div>
         <div className="row">
           <div className="row-text">
@@ -324,7 +371,11 @@ export default function SettingsView(): JSX.Element {
           </div>
           <div className="flat-group">
             {[true, false].map((v) => (
-              <button key={String(v)} className={`mini ${settings.useGpu === v ? 'on' : ''}`} onClick={() => void saveSettings({ useGpu: v })}>
+              <button
+                key={String(v)}
+                className={`mini ${settings.useGpu === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ useGpu: v })}
+              >
                 {v ? '켜기' : '끄기'}
               </button>
             ))}
@@ -337,10 +388,11 @@ export default function SettingsView(): JSX.Element {
         <div className="row">
           <div className="row-text">
             <div className="row-title">테마</div>
+            {embedded && <div className="row-desc">Halftone 안에서는 Halftone 테마를 따릅니다.</div>}
           </div>
           <div className="flat-group">
             {(['light', 'dark'] as const).map((t) => (
-              <button key={t} className={`mini ${settings.theme === t ? 'on' : ''}`} onClick={() => void saveSettings({ theme: t })}>
+              <button key={t} className={`mini ${settings.theme === t ? 'on' : ''}`} disabled={embedded} onClick={() => void saveSettings({ theme: t })}>
                 {t === 'light' ? '라이트' : '다크'}
               </button>
             ))}
@@ -349,11 +401,18 @@ export default function SettingsView(): JSX.Element {
         <div className="row">
           <div className="row-text">
             <div className="row-title">스크롤로 넘기기</div>
-            <div className="row-desc">크게 보기에서 마우스 휠로 이전 · 다음 이미지로 넘깁니다. 썸네일 마스킹(블러 · 숨기기)은 라이브러리 위쪽 마스킹 메뉴에서 정합니다.</div>
+            <div className="row-desc">
+              크게 보기에서 마우스 휠로 이전 · 다음 이미지로 넘깁니다. 썸네일 마스킹(블러 · 숨기기)은 라이브러리 위쪽 마스킹 메뉴에서
+              정합니다.
+            </div>
           </div>
           <div className="flat-group">
             {[true, false].map((v) => (
-              <button key={String(v)} className={`mini ${settings.wheelNavigate === v ? 'on' : ''}`} onClick={() => void saveSettings({ wheelNavigate: v })}>
+              <button
+                key={String(v)}
+                className={`mini ${settings.wheelNavigate === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ wheelNavigate: v })}
+              >
                 {v ? '사용' : '미사용'}
               </button>
             ))}
@@ -420,7 +479,11 @@ export default function SettingsView(): JSX.Element {
             <button
               className="mini"
               disabled={sameList(settings.ignoredCharacterTags, DEFAULT_IGNORED)}
-              onClick={() => void saveSettings({ ignoredCharacterTags: [...DEFAULT_IGNORED] })}
+              onClick={() =>
+                void saveSettings({
+                  ignoredCharacterTags: [...DEFAULT_IGNORED]
+                })
+              }
             >
               <RestartIcon />
               기본값
@@ -436,7 +499,11 @@ export default function SettingsView(): JSX.Element {
               {t}
               <button
                 title="빼기"
-                onClick={() => void saveSettings({ ignoredCharacterTags: settings.ignoredCharacterTags.filter((x) => x !== t) })}
+                onClick={() =>
+                  void saveSettings({
+                    ignoredCharacterTags: settings.ignoredCharacterTags.filter((x) => x !== t)
+                  })
+                }
               >
                 <CloseIcon />
               </button>
@@ -451,58 +518,70 @@ export default function SettingsView(): JSX.Element {
           onKeyDown={(e) => {
             const t = newTag.trim().toLowerCase().replace(/\s+/g, '_')
             if (e.key === 'Enter' && t) {
-              if (!settings.ignoredCharacterTags.includes(t)) void saveSettings({ ignoredCharacterTags: [...settings.ignoredCharacterTags, t] })
+              if (!settings.ignoredCharacterTags.includes(t))
+                void saveSettings({
+                  ignoredCharacterTags: [...settings.ignoredCharacterTags, t]
+                })
               setNewTag('')
             }
           }}
         />
       </section>
 
-      <section className="card">
-        <h2>앱</h2>
-        <div className="row">
-          <div className="row-text">
-            <div className="row-title">자동 업데이트</div>
-            <div className="row-desc">새 버전이 나오면 받아 두었다가 다음 실행 때 적용합니다. 끄면 업데이트를 확인하지 않습니다.</div>
-            <div className="row-desc">
-              현재 버전 {info?.version}
-              {' · '}
-              {{
-                idle: '',
-                dev: '개발 실행 중이라 업데이트를 확인하지 않습니다',
-                checking: '확인 중…',
-                none: '최신 버전입니다',
-                available: `새 버전 ${update.version}을(를) 받습니다`,
-                downloading: `새 버전 ${update.version} 받는 중 ${update.percent ?? 0}%`,
-                downloaded: `새 버전 ${update.version} 준비 완료 · 재시작하면 적용됩니다`,
-                error: `확인 실패: ${update.error ?? ''}`
-              }[update.state]}
+      {/* inside Halftone the host app updates itself */}
+      {!info?.embedded && (
+        <section className="card">
+          <h2>앱</h2>
+          <div className="row">
+            <div className="row-text">
+              <div className="row-title">자동 업데이트</div>
+              <div className="row-desc">새 버전이 나오면 받아 두었다가 다음 실행 때 적용합니다. 끄면 업데이트를 확인하지 않습니다.</div>
+              <div className="row-desc">
+                현재 버전 {info?.version}
+                {' · '}
+                {
+                  {
+                    idle: '',
+                    dev: '개발 실행 중이라 업데이트를 확인하지 않습니다',
+                    checking: '확인 중…',
+                    none: '최신 버전입니다',
+                    available: `새 버전 ${update.version}을(를) 받습니다`,
+                    downloading: `새 버전 ${update.version} 받는 중 ${update.percent ?? 0}%`,
+                    downloaded: `새 버전 ${update.version} 준비 완료 · 재시작하면 적용됩니다`,
+                    error: `확인 실패: ${update.error ?? ''}`
+                  }[update.state]
+                }
+              </div>
+            </div>
+            <div className="flat-group">
+              {[true, false].map((v) => (
+                <button
+                  key={String(v)}
+                  className={`mini ${settings.autoUpdate === v ? 'on' : ''}`}
+                  onClick={() => void saveSettings({ autoUpdate: v })}
+                >
+                  {v ? '켜기' : '끄기'}
+                </button>
+              ))}
+              {update.state === 'downloaded' ? (
+                <button className="mini" onClick={() => window.api.installUpdate()}>
+                  <RestartIcon />
+                  재시작해서 업데이트
+                </button>
+              ) : (
+                <button
+                  className="mini"
+                  disabled={update.state === 'dev' || update.state === 'checking' || update.state === 'downloading'}
+                  onClick={() => void window.api.checkUpdate().then((u) => useStore.setState({ update: u }))}
+                >
+                  <RestartIcon />
+                  지금 확인
+                </button>
+              )}
             </div>
           </div>
-          <div className="flat-group">
-            {[true, false].map((v) => (
-              <button key={String(v)} className={`mini ${settings.autoUpdate === v ? 'on' : ''}`} onClick={() => void saveSettings({ autoUpdate: v })}>
-                {v ? '켜기' : '끄기'}
-              </button>
-            ))}
-            {update.state === 'downloaded' ? (
-              <button className="mini" onClick={() => window.api.installUpdate()}>
-                <RestartIcon />
-                재시작해서 업데이트
-              </button>
-            ) : (
-              <button
-                className="mini"
-                disabled={update.state === 'dev' || update.state === 'checking' || update.state === 'downloading'}
-                onClick={() => void window.api.checkUpdate().then((u) => useStore.setState({ update: u }))}
-              >
-                <RestartIcon />
-                지금 확인
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section className="card">
         <h2>데이터</h2>

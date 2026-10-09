@@ -1,4 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { embedded, followHostTheme, postJob } from './embed'
+import type { SortaStatus } from '../../shared/ipc'
 import logo from './assets/logo.png'
 import type { JSX } from 'react'
 import { useStore } from './store'
@@ -44,12 +46,46 @@ function CharactersView(): JSX.Element {
   return tab === 'org' ? <OrgView tabs={tabs} /> : <LearnView tabs={tabs} />
 }
 
-export default function App(): JSX.Element {
+// The data folder is shared with the other app (standalone Sorta / Halftone):
+// while that one has it open, show who and offer a retry.
+export default function App(): JSX.Element | null {
+  const [st, setSt] = useState<SortaStatus | null>(null)
+  useEffect(() => {
+    void window.api.status().then(setSt)
+  }, [])
+  if (!st) return null
+  if (st.newerData)
+    return (
+      <div className="locked">
+        <img className="locked-logo" src={logo} alt="" />
+        <h2>더 새 버전의 Sorta에서 만든 데이터입니다</h2>
+        <p>
+          Sorta 독립 앱과 Halftone은 같은 분류 데이터를 함께 씁니다. 다른 쪽이 더 새 버전이라 이 버전에서는 데이터를 열지 않습니다.{' '}
+          {embedded ? 'Halftone을 업데이트한 뒤 다시 여세요.' : 'Sorta를 업데이트한 뒤 다시 여세요.'}
+        </p>
+      </div>
+    )
+  if (!st.ready)
+    return (
+      <div className="locked">
+        <img className="locked-logo" src={logo} alt="" />
+        <h2>{st.lockedBy ?? '다른 앱'}에서 Sorta 데이터를 쓰고 있습니다</h2>
+        <p>Sorta 독립 앱과 Halftone은 같은 분류 데이터를 함께 씁니다. {st.lockedBy ?? '다른 앱'}을(를) 닫은 뒤 다시 시도하세요.</p>
+        <button className="btn primary" onClick={() => void window.api.retryLock().then(setSt)}>
+          다시 시도
+        </button>
+      </div>
+    )
+  return <Main />
+}
+
+function Main(): JSX.Element {
   const { view, setView, settings, load, onProgress, refreshLibrary, refreshModels, toast, dismissToast } = useStore()
 
   useEffect(() => {
     void load()
-    const offProgress = window.api.onProgress(onProgress)
+    void window.api.start() // watch folders + start-up jobs (once)
+    const offProgress = window.api.onProgress((e) => (onProgress(e), postJob(e)))
     const offToast = window.api.onToast((t) => useStore.getState().showToast(t))
     const offUpdate = window.api.onUpdateStatus((update) => useStore.setState({ update }))
     const offChanged = window.api.onLibraryChanged(() => {
@@ -82,8 +118,11 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [undo])
 
+  // Theme: Sorta's own setting, or — inside Halftone — the host's theme.
   useEffect(() => {
+    if (embedded) return followHostTheme((t) => (document.documentElement.dataset.theme = t))
     if (settings) document.documentElement.dataset.theme = settings.theme
+    return undefined
   }, [settings?.theme])
 
   return (
@@ -114,7 +153,8 @@ export default function App(): JSX.Element {
         {view === 'characters' && <CharactersView />}
         {view === 'settings' && <SettingsView />}
       </main>
-      <ProgressBar />
+      {/* inside Halftone, jobs show in Halftone's activity bar */}
+      {!embedded && <ProgressBar />}
       <NewGroupDialog />
       {toast && (
         <div className={`toast ${toast.ok ? '' : 'err'}`}>

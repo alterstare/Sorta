@@ -1,0 +1,94 @@
+import type { IpcRenderer } from 'electron'
+import { IPC } from '../shared/ipc'
+import type { Api, JobSummary, UpdateStatus } from '../shared/ipc'
+import type { ProgressEvent } from '../shared/types'
+
+// The renderer API over IPC — shared by Sorta's own preload and Halftone's
+// (which exposes it in the Sorta frame).
+export function createApi(ipcRenderer: IpcRenderer): Api {
+  const on = <T>(ch: string, cb: (v: T) => void): (() => void) => {
+    const h = (_e: unknown, v: T): void => cb(v)
+    ipcRenderer.on(ch, h)
+    return () => ipcRenderer.removeListener(ch, h)
+  }
+
+  return {
+    appInfo: () => ipcRenderer.invoke(IPC.appInfo),
+    getSettings: () => ipcRenderer.invoke(IPC.getSettings),
+    saveSettings: (patch) => ipcRenderer.invoke(IPC.saveSettings, patch),
+    onProgress: (cb) => on<ProgressEvent>(IPC.progress, cb),
+    cancelJob: (id) => ipcRenderer.invoke(IPC.cancelJob, id),
+    pickFolder: () => ipcRenderer.invoke(IPC.pickFolder),
+    runImport: () => ipcRenderer.invoke(IPC.runImport),
+    runClassify: () => ipcRenderer.invoke(IPC.runClassify),
+    reclassifyAll: () => ipcRenderer.invoke(IPC.reclassifyAll),
+    models: () => ipcRenderer.invoke(IPC.models),
+    downloadModel: (id) => ipcRenderer.invoke(IPC.downloadModel, id),
+    deleteModel: (id) => ipcRenderer.invoke(IPC.deleteModel, id),
+    runAssist: () => ipcRenderer.invoke(IPC.runAssist),
+    tree: (r, g) => ipcRenderer.invoke(IPC.tree, r, g),
+    setFavorite: (ids, on) => ipcRenderer.invoke(IPC.setFavorite, ids, on),
+    setStars: (ids, n) => ipcRenderer.invoke(IPC.setStars, ids, n),
+    groups: () => ipcRenderer.invoke(IPC.groups),
+    createGroup: (n, ids) => ipcRenderer.invoke(IPC.createGroup, n, ids),
+    renameGroup: (id, n) => ipcRenderer.invoke(IPC.renameGroup, id, n),
+    deleteGroup: (id) => ipcRenderer.invoke(IPC.deleteGroup, id),
+    setGroupMembership: (ids, g, on) => ipcRenderer.invoke(IPC.setGroupMembership, ids, g, on),
+    copyImage: (p) => ipcRenderer.invoke(IPC.copyImage, p),
+    duplicates: () => ipcRenderer.invoke(IPC.duplicates),
+    exportPack: (o) => ipcRenderer.invoke(IPC.exportPack, o),
+    pickPack: () => ipcRenderer.invoke(IPC.pickPack),
+    previewPack: (f, o) => ipcRenderer.invoke(IPC.previewPack, f, o),
+    importPack: (f, o) => ipcRenderer.invoke(IPC.importPack, f, o),
+    setAside: (ids) => ipcRenderer.invoke(IPC.setAside, ids),
+    notDuplicate: (ids) => ipcRenderer.invoke(IPC.notDuplicate, ids),
+    images: (f) => ipcRenderer.invoke(IPC.images, f),
+    onLibraryChanged: (cb) => on<void>(IPC.libraryChanged, () => cb()),
+    showInFolder: (p) => ipcRenderer.invoke(IPC.showInFolder, p),
+    imageUrl: (p) => 'sorta-img://f/' + Buffer.from(p, 'utf-8').toString('base64url'),
+    reviewQueue: (k) => ipcRenderer.invoke(IPC.reviewQueue, k),
+    confirmCharacters: (i, c) => ipcRenderer.invoke(IPC.confirmCharacters, i, c),
+    addCharacter: (i, c) => ipcRenderer.invoke(IPC.addCharacter, i, c),
+    markOther: (i) => ipcRenderer.invoke(IPC.markOther, i),
+    setRating: (i, r) => ipcRenderer.invoke(IPC.setRating, i, r),
+    createCharacter: (n, s) => ipcRenderer.invoke(IPC.createCharacter, n, s),
+    searchCharacters: (q) => ipcRenderer.invoke(IPC.searchCharacters, q),
+    characterFromTag: (t) => ipcRenderer.invoke(IPC.characterFromTag, t),
+    seriesNames: () => ipcRenderer.invoke(IPC.seriesNames),
+    undo: () => ipcRenderer.invoke(IPC.undo),
+    onToast: (cb) => on<JobSummary>(IPC.toast, cb),
+    onUpdateStatus: (cb) => on<UpdateStatus>(IPC.updateStatus, cb),
+    checkUpdate: () => ipcRenderer.invoke(IPC.checkUpdate),
+    installUpdate: () => ipcRenderer.send(IPC.installUpdate),
+    learnRefresh: () => ipcRenderer.invoke(IPC.learnRefresh),
+    learnPlan: (t) => ipcRenderer.invoke(IPC.learnPlan, t),
+    learn: (tags) => ipcRenderer.invoke(IPC.learn, tags),
+    booruTags: (q) => ipcRenderer.invoke(IPC.booruTags, q),
+    learned: () => ipcRenderer.invoke(IPC.learned),
+    forgetLearned: (id) => ipcRenderer.invoke(IPC.forgetLearned, id),
+    games: () => ipcRenderer.invoke(IPC.games),
+    organizePlan: () => ipcRenderer.invoke(IPC.organizePlan),
+    organize: () => ipcRenderer.invoke(IPC.organize),
+    characters: () => ipcRenderer.invoke(IPC.characters),
+    affiliations: (s) => ipcRenderer.invoke(IPC.affiliations, s),
+    renameCharacter: (id, n) => ipcRenderer.invoke(IPC.renameCharacter, id, n),
+    setAliases: (id, a) => ipcRenderer.invoke(IPC.setAliases, id, a),
+    setSeries: (ids, s) => ipcRenderer.invoke(IPC.setSeries, ids, s),
+    setAffiliation: (ids, n) => ipcRenderer.invoke(IPC.setAffiliation, ids, n),
+    mergeCharacters: (f, i) => ipcRenderer.invoke(IPC.mergeCharacters, f, i),
+    unknownClusters: () => ipcRenderer.invoke(IPC.unknownClusters),
+    orgChart: (s) => ipcRenderer.invoke(IPC.orgChart, s),
+    addAffiliation: (s, n, p) => ipcRenderer.invoke(IPC.addAffiliation, s, n, p),
+    renameAffiliation: (id, n) => ipcRenderer.invoke(IPC.renameAffiliation, id, n),
+    deleteAffiliation: (id) => ipcRenderer.invoke(IPC.deleteAffiliation, id),
+    moveAffiliation: (id, p, i) => ipcRenderer.invoke(IPC.moveAffiliation, id, p, i),
+    placeCharacters: (ids, a) => ipcRenderer.invoke(IPC.placeCharacters, ids, a),
+    setWiki: (s, w) => ipcRenderer.invoke(IPC.setWiki, s, w),
+    applyAffiliations: (s, items) => ipcRenderer.invoke(IPC.applyAffiliations, s, items),
+    wikiLookup: (s, ids) => ipcRenderer.invoke(IPC.wikiLookup, s, ids),
+    openUrl: (u) => ipcRenderer.invoke(IPC.openUrl, u),
+    status: () => ipcRenderer.invoke(IPC.status),
+    retryLock: () => ipcRenderer.invoke(IPC.retryLock),
+    start: () => ipcRenderer.invoke(IPC.start)
+  }
+}

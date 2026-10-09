@@ -11,6 +11,10 @@ directories:
 files:
   - out/**/*
   - package.json
+  # better-sqlite3 ships its C sources (~10MB); only the built .node is needed.
+  - '!node_modules/better-sqlite3/deps/**'
+  - '!node_modules/better-sqlite3/src/**'
+  - '!node_modules/better-sqlite3/binding.gyp'
   - LICENSE
 # better-sqlite3 is already the Electron-ABI prebuilt (scripts/native.mjs on
 # install): don't let electron-builder try to compile it.

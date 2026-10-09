@@ -37,6 +37,7 @@ export default function ProgressBar(): JSX.Element {
 // 자동 업데이트 상태 (right end of the status bar).
 function UpdateBadge(): JSX.Element | null {
   const u = useStore((s) => s.update)
+  if (useStore.getState().info?.embedded) return null // Halftone updates itself
   if (u.state === 'downloading') return <span className="status-update">업데이트 {u.version} 받는 중 {u.percent ?? 0}%</span>
   if (u.state === 'downloaded')
     return (

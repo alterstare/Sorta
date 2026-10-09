@@ -71,6 +71,7 @@ export interface ProgressEvent {
 
 export interface AppInfo {
   version: string
+  embedded: boolean // running inside Halftone (no own updater / window chrome)
   dataDir: string
   dbPath: string
   schemaVersion: number
