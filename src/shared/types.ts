@@ -2,7 +2,7 @@
 
 export type Rating = 'general' | 'sensitive' | 'r18' | 'unknown'
 export type MatchStatus = 'auto' | 'confirmed' | 'pending' | 'unknown'
-export type ImageKind = 'character' | 'other' | 'unknown'
+export type ImageKind = 'character' | 'other' | 'unknown' | 'group' // group: 단체 사진으로만 분류 (shown; stored as group_only)
 export type SafeMode = 'show' | 'blur' | 'hide'
 export type AssistMode = 'none' | 'pixai' | 'pixai+camie'
 export type ModelId = 'wd' | 'pixai' | 'camie' | 'series' | 'ccip'
@@ -46,6 +46,7 @@ export interface Settings {
   learnSensitive: boolean // Danbooru: also use rating:sensitive pictures (swimsuits etc.)
   useGpu: boolean
   allowWebLookup: boolean // wiki / LLM lookups by character name (opt-in)
+  allowImageSearch: boolean // 구글 렌즈: the one place a picture leaves the PC, only on the user's click (opt-in)
   autoUpdate: boolean
   theme: 'light' | 'dark'
   wheelNavigate: boolean // 크게 보기: mouse wheel → previous / next image
@@ -67,6 +68,7 @@ export interface ProgressEvent {
   unit?: 'bytes' // done/total are bytes (shown as MB)
   state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
   error?: string
+  background?: boolean // never blocks other actions; yields to any other job
 }
 
 export interface AppInfo {
@@ -92,6 +94,7 @@ export type LibraryNode =
   | { type: 'ratingReview' } // rating fell in a borderline band
   | { type: 'unknown' } // classified, no character found
   | { type: 'other' } // marked "캐릭터 아닌 그림"
+  | { type: 'groupShot'; id?: number } // 단체 사진으로만 분류 (id: of one game)
   | { type: 'unclassified' } // imported, tagger not run yet
 
 export type RatingPick = Exclude<Rating, 'unknown'>
@@ -132,6 +135,8 @@ export interface TreeSeries {
   shown?: number
   affiliations: TreeAffiliation[] // top-level 소속 (조직도 order)
   characters: TreeCharacter[] // characters without a 소속
+  groupShots?: number // 단체 사진 of this game
+  groupShotsShown?: number
 }
 export type TreeCounts = {
   all: number
@@ -140,6 +145,7 @@ export type TreeCounts = {
   ratingReview: number
   unknown: number
   other: number
+  groupShot: number
   unclassified: number
   setAside: number
 }
@@ -176,6 +182,7 @@ export interface ImageItem {
   rating: Rating
   ratingReview: boolean
   kind: ImageKind
+  groupSeries?: string | null // 단체 사진: its game
   dupOf: number | null
   error: string | null
   name: string // file name

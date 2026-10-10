@@ -42,6 +42,10 @@ describe('소속 조직도', () => {
     expect(names(core, 'Blue Archive').Hoshino).toBe('아비도스')
     await core.undo()
     expect(names(core, 'Blue Archive').Hoshino).toBe('Countermeasure')
+    await core.redo() // delete again
+    expect(names(core, 'Blue Archive').Hoshino).toBe('아비도스')
+    await core.undo()
+    expect(names(core, 'Blue Archive').Hoshino).toBe('Countermeasure')
     await core.undo() // rename
     expect(core.orgChart('Blue Archive').nodes.find((n) => n.id === abydos)!.name).toBe('Abydos')
     core.close()

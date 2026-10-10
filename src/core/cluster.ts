@@ -13,7 +13,7 @@ export function unknownClusters(db: Db, minSimilarity: number): { clusters: Unkn
   const imgs = db
     .prepare(
       `SELECT i.id, i.path, i.thumbnail_path AS thumb, i.rating, i.embedded_at FROM images i
-       WHERE i.classified_at IS NOT NULL AND i.kind <> 'other' AND i.set_aside = 0
+       WHERE i.classified_at IS NOT NULL AND i.kind <> 'other' AND i.group_only = 0 AND i.set_aside = 0
          AND NOT EXISTS (SELECT 1 FROM image_characters ic WHERE ic.image_id = i.id AND ic.status IN ('auto','confirmed','pending'))
        ORDER BY i.id`
     )

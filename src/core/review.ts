@@ -14,6 +14,8 @@ interface ImageSnap {
   rating: string
   rating_source: string
   rating_review: number
+  group_only: number
+  group_series_id: number | null
   rows: {
     character_id: number | null
     status: string
@@ -30,7 +32,7 @@ interface EditPayload {
 }
 
 function snapshot(db: Db, ids: number[]): ImageSnap[] {
-  const img = db.prepare('SELECT id, kind, rating, rating_source, rating_review FROM images WHERE id = ?')
+  const img = db.prepare('SELECT id, kind, rating, rating_source, rating_review, group_only, group_series_id FROM images WHERE id = ?')
   const rows = db.prepare(
     'SELECT character_id, status, source, confidence, bbox, candidates FROM image_characters WHERE image_id = ? ORDER BY id'
   )
@@ -39,13 +41,15 @@ function snapshot(db: Db, ids: number[]): ImageSnap[] {
 
 function restore(db: Db, snaps: ImageSnap[]): void {
   db.transaction(() => {
-    const upd = db.prepare('UPDATE images SET kind = ?, rating = ?, rating_source = ?, rating_review = ? WHERE id = ?')
+    const upd = db.prepare('UPDATE images SET kind = ?, rating = ?, rating_source = ?, rating_review = ?, group_only = ?, group_series_id = ? WHERE id = ?')
     const del = db.prepare('DELETE FROM image_characters WHERE image_id = ?')
     const ins = db.prepare(
       'INSERT INTO image_characters (image_id, character_id, status, source, confidence, bbox, candidates) VALUES (?, ?, ?, ?, ?, ?, ?)'
     )
+    const exists = db.prepare('SELECT 1 FROM images WHERE id = ?')
     for (const s of snaps) {
-      upd.run(s.kind, s.rating, s.rating_source, s.rating_review, s.id)
+      if (!exists.get(s.id)) continue // thrown away (삭제) since
+      upd.run(s.kind, s.rating, s.rating_source, s.rating_review, s.group_only ?? 0, s.group_series_id ?? null, s.id)
       del.run(s.id)
       for (const r of s.rows) ins.run(s.id, r.character_id, r.status, r.source, r.confidence, r.bbox, r.candidates)
     }
@@ -55,7 +59,11 @@ function restore(db: Db, snaps: ImageSnap[]): void {
 export const EDIT_ACTION = 'review.edit'
 
 export function registerReviewUndo(log: ActionLog, db: Db): void {
-  log.register<EditPayload>(EDIT_ACTION, (p) => restore(db, p.before))
+  log.register<EditPayload>(
+    EDIT_ACTION,
+    (p) => restore(db, p.before),
+    (p) => ({ label: p.label, before: snapshot(db, p.before.map((x) => x.id)) })
+  )
 }
 
 // Run `fn` over the images as one undoable step.
@@ -81,7 +89,7 @@ export function confirmCharacters(db: Db, log: ActionLog, imageIds: number[], ch
     for (const id of imageIds) {
       del.run(id)
       for (const c of chars) ins.run(id, c)
-      db.prepare("UPDATE images SET kind = 'character' WHERE id = ?").run(id)
+      db.prepare("UPDATE images SET kind = 'character', group_only = 0, group_series_id = NULL WHERE id = ?").run(id)
     }
   })
 }
@@ -93,7 +101,7 @@ export function addCharacter(db: Db, log: ActionLog, imageId: number, characterI
     db.prepare(
       "INSERT INTO image_characters (image_id, character_id, status, source, confidence) VALUES (?, ?, 'confirmed', 'user', 1)"
     ).run(imageId, characterId)
-    db.prepare("UPDATE images SET kind = 'character' WHERE id = ?").run(imageId)
+    db.prepare("UPDATE images SET kind = 'character', group_only = 0, group_series_id = NULL WHERE id = ?").run(imageId)
   })
 }
 
@@ -103,7 +111,27 @@ export function markOther(db: Db, log: ActionLog, imageIds: number[]): void {
     const del = db.prepare('DELETE FROM image_characters WHERE image_id = ?')
     for (const id of imageIds) {
       del.run(id)
-      db.prepare("UPDATE images SET kind = 'other' WHERE id = ?").run(id)
+      db.prepare("UPDATE images SET kind = 'other', group_only = 0, group_series_id = NULL WHERE id = ?").run(id)
+    }
+  })
+}
+
+// 단체 사진으로만 분류: several people, not named, optionally of one game
+// (→ 게임/단체 or 단체 when organizing). Replaces any characters found or
+// confirmed for it.
+export function markGroup(db: Db, log: ActionLog, imageIds: number[], series: string | null): void {
+  let sid: number | null = null
+  const name = series?.trim()
+  if (name) {
+    db.prepare("INSERT OR IGNORE INTO series (name, aliases, created_at) VALUES (?, '[]', ?)").run(name, Date.now())
+    sid = (db.prepare('SELECT id FROM series WHERE name = ?').get(name) as { id: number }).id
+  }
+  edit(db, log, imageIds, name ? `단체 사진으로 분류 (${name})` : '단체 사진으로 분류', () => {
+    const del = db.prepare('DELETE FROM image_characters WHERE image_id = ?')
+    const up = db.prepare("UPDATE images SET kind = 'character', group_only = 1, group_series_id = ? WHERE id = ?")
+    for (const id of imageIds) {
+      del.run(id)
+      up.run(sid, id)
     }
   })
 }

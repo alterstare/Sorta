@@ -191,3 +191,87 @@ describe('shared data folder', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 })
+
+describe('redo (그룹)', () => {
+  it('create / delete a group: undo, redo, undo', async () => {
+    const core = new SortaCore(':memory:')
+    const groups = (): string[] => core.tree(['general', 'sensitive', 'r18']).groups.map((g) => g.name)
+    const id = core.createGroup('A')
+    await core.undo()
+    expect(groups()).toEqual([])
+    await core.redo()
+    expect(groups()).toEqual(['A'])
+    core.deleteGroup(id)
+    await core.undo()
+    expect(groups()).toEqual(['A'])
+    await core.redo()
+    expect(groups()).toEqual([])
+    core.close()
+  })
+})
+
+describe('삭제 (휴지통)', () => {
+  it('sends the file to the trash function and drops the picture; old undo steps skip it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sorta-'))
+    try {
+      const src = join(dir, 'src')
+      const { mkdirSync } = await import('fs')
+      mkdirSync(src)
+      const core = new SortaCore(join(dir, 'data'), {
+        taggerFactory: async () => new MockTagger({ '255,0,0': { rating: { general: 1, sensitive: 0, questionable: 0, explicit: 0 }, characters: [], general: [] } })
+      })
+      core.saveSettings({ sourceDirs: [src] })
+      const sharp = (await import('sharp')).default
+      await sharp({ create: { width: 40, height: 40, channels: 3, background: { r: 255, g: 0, b: 0 } } }).png().toFile(join(src, 'a.png'))
+      await core.runImport().done
+      const all = (): { id: number; path: string }[] =>
+        core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
+      const [img] = all()
+      core.setStars([img.id], 3)
+      core.setRating([img.id], 'sensitive')
+      const trashed: string[] = []
+      const r = await core.runTrash([img.id], async (p) => void trashed.push(p)).done
+      expect(r).toEqual({ trashed: 1, failed: [] })
+      expect(trashed).toEqual([img.path])
+      expect(all()).toHaveLength(0)
+      // undoing the earlier edits on it doesn't get stuck
+      await core.undo()
+      await core.undo()
+      expect(await core.undo()).toMatchObject({ label: null })
+      core.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('queue: background jobs', () => {
+  it('a background job makes way for another job and runs again after it', async () => {
+    const { JobQueue } = await import('../src/core/queue')
+    const q = new JobQueue()
+    const order: string[] = []
+    let runs = 0
+    const bg = q.add(
+      'bg',
+      async (ctx) => {
+        runs++
+        order.push(`bg start ${runs}`)
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 5))
+          if (ctx.signal.aborted) throw new CancelledError()
+        }
+        order.push('bg done')
+        return 'ok'
+      },
+      { background: true }
+    )
+    await new Promise((r) => setTimeout(r, 15))
+    const fg = q.add('fg', async () => {
+      order.push('fg')
+      return 1
+    })
+    expect(await fg.done).toBe(1)
+    expect(await bg.done).toBe('ok')
+    expect(order).toEqual(['bg start 1', 'fg', 'bg start 2', 'bg done'])
+  })
+})

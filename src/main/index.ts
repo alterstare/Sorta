@@ -98,6 +98,7 @@ else {
       dataDir: app.getPath('userData'),
       appName: 'Sorta',
       appVersion: app.getVersion(),
+      icon: DEV_ICON,
       window: () => win,
       send: (ch, payload) => win?.webContents.send(ch, payload),
       onTheme: (t) => (nativeTheme.themeSource = t),

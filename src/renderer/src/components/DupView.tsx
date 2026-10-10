@@ -4,7 +4,7 @@
 // the group as not duplicates.
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { DupGroup } from '../../../shared/types'
 import { CheckIcon, DriveFileMoveIcon, FolderOpenIcon } from './icons'
@@ -15,7 +15,7 @@ export default function DupView(): JSX.Element {
   const libraryVersion = useStore((s) => s.libraryVersion)
   const showToast = useStore((s) => s.showToast)
   const setView = useStore((s) => s.setView)
-  const running = useStore((s) => Object.keys(s.jobs).length > 0)
+  const running = useStore((s) => blocking(s.jobs))
   const [groups, setGroups] = useKept<DupGroup[] | null>('dups.groups', null)
   const [keep, setKeep] = useKept<Record<string, number>>('dups.keep', {})
   const [busy, setBusy] = useState(false)

@@ -26,10 +26,25 @@ export function registerCollectUndo(log: ActionLog, db: Db): void {
         const ids = s.memberships.imageIds
         if (ids.length) db.prepare(`DELETE FROM image_groups WHERE image_id IN (${ids.map(() => '?').join(',')})`).run(...ids)
         const ins = db.prepare('INSERT OR IGNORE INTO image_groups (image_id, group_id, added_at) VALUES (@image_id, @group_id, @added_at)')
-        for (const r of s.memberships.rows) ins.run(r)
+        const exists = db.prepare('SELECT 1 FROM images WHERE id = ?')
+        for (const r of s.memberships.rows) if (exists.get(r.image_id)) ins.run(r) // skip thrown-away pictures
       }
       if (s.createdGroup) db.prepare('DELETE FROM fav_groups WHERE id = ?').run(s.createdGroup)
-    })()
+    })(),
+    // Redo: the same scope as it is now. A group that exists now is put back
+    // by redo; one that doesn't (undo will re-create it) is dropped again.
+    (s) => {
+      const gIds = [...(s.groups ?? []).map((g) => g.id), ...(s.createdGroup ? [s.createdGroup] : [])]
+      const gq = db.prepare('SELECT id, name, sort_order, created_at FROM fav_groups WHERE id = ?')
+      const groups = gIds.map((id) => gq.get(id) as NonNullable<Snap['groups']>[number] | undefined).filter((g) => !!g)
+      return {
+        label: s.label,
+        images: imagesSnap(db, s.images.map((i) => i.id)),
+        memberships: s.memberships ? membershipSnap(db, s.memberships.imageIds) : undefined,
+        groups,
+        createdGroup: gIds.find((id) => !groups.some((g) => g.id === id))
+      }
+    }
   )
 }
 

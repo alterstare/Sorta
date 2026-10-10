@@ -36,6 +36,7 @@ export function charLabel(img: ImageItem): string {
   const named = img.characters.filter((c) => c.name)
   if (named.length) return named.map((c) => c.name).join(', ')
   if (img.kind === 'other') return '캐릭터 아닌 그림'
+  if (img.kind === 'group') return img.groupSeries ? `단체 사진 · ${img.groupSeries}` : '단체 사진'
   return img.characters.length ? '미확인' : '분류 전'
 }
 
@@ -106,6 +107,33 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
   }, [listKey])
   useEffect(() => () => setSaved({ key: listKey, top: topRef.current }), [listKey, setSaved])
 
+  // Closing 크게 보기: the grid shows the picture that was open (scrolled to
+  // it when it's out of view) and flashes it.
+  const viewerIndex = useStore((s) => s.viewerIndex)
+  const lastViewed = useRef<number | null>(null)
+  const [flash, setFlash] = useState<number | null>(null)
+  useEffect(() => {
+    if (viewerIndex !== null) {
+      lastViewed.current = viewerIndex
+      return
+    }
+    const i = lastViewed.current
+    lastViewed.current = null
+    const el = ref.current
+    if (i === null || !el || !items[i]) return
+    const r = Math.floor(i / cols)
+    const top = PAD + r * rowH
+    if (top < el.scrollTop || top + rowH > el.scrollTop + el.clientHeight) {
+      el.scrollTop = Math.max(0, top - (el.clientHeight - rowH) / 2)
+      topRef.current = el.scrollTop
+      setBox((b) => ({ ...b, top: el.scrollTop }))
+    }
+    setFlash(items[i].id)
+    const t = window.setTimeout(() => setFlash(null), 1600)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewerIndex])
+
   const icon = CELL[size]
   const inner = Math.max(1, box.w - PAD * 2)
   const cols = list ? 1 : Math.max(1, Math.floor((inner + GAP) / (icon + GAP)))
@@ -115,8 +143,118 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
   const first = Math.max(0, Math.floor((box.top - PAD) / rowH) - 2)
   const last = Math.min(rows, Math.ceil((box.top + box.h) / rowH) + 2)
 
+  // Drag selection (rubber band), from empty space or over pictures. Ctrl /
+  // Shift add to the current selection; near the top / bottom edge the grid
+  // scrolls. A plain click on empty space clears the selection.
+  // The band moves by direct style updates (no re-render per mouse move); the
+  // selection updates at most once a frame, and only when it changed.
+  const bandRef = useRef<HTMLDivElement>(null)
+  const lastHits = useRef('')
+  const dragSel = useRef<{ x0: number; y0: number; cx: number; cy: number; base: Set<number>; active: boolean } | null>(null)
+  const suppressClick = useRef(false)
+  const layout = useRef({ cols, cellW, rowH, list })
+  layout.current = { cols, cellW, rowH, list }
+  const hits = (x0: number, y0: number, x1: number, y1: number): number[] => {
+    const { cols: n, cellW: w, rowH: h, list: l } = layout.current
+    const [left, right, top, bottom] = [Math.min(x0, x1), Math.max(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]
+    const r0 = Math.max(0, Math.floor((top - PAD) / h))
+    const r1 = Math.floor((bottom - PAD) / h)
+    const out: number[] = []
+    for (let r = r0; r <= r1; r++) {
+      const ct = PAD + r * h
+      if (ct > bottom || ct + h - (l ? 1 : GAP) < top) continue
+      for (let c = 0; c < n; c++) {
+        const it = items[r * n + c]
+        if (!it) break
+        const cl = PAD + c * (w + GAP)
+        if (cl <= right && cl + w >= left) out.push(it.id)
+      }
+    }
+    return out
+  }
+  const onGridMouseDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return
+    const t = e.target as HTMLElement
+    if (t.closest('button, input, .cell-foot, .lrow-act, .dropmenu-panel, .ctx-menu')) return
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    if (e.clientX > r.left + el.clientWidth) return // the scrollbar
+    const add = e.ctrlKey || e.metaKey || e.shiftKey
+    const x = e.clientX - r.left + el.scrollLeft
+    const y = e.clientY - r.top + el.scrollTop
+    dragSel.current = { x0: x, y0: y, cx: e.clientX, cy: e.clientY, base: add ? new Set(selected) : new Set(), active: false }
+    e.preventDefault() // no text selection while dragging
+  }
+  useEffect(() => {
+    const el = ref.current
+    let raf = 0
+    const update = (): void => {
+      const d = dragSel.current
+      if (!d || !el) return
+      const r = el.getBoundingClientRect()
+      const x = Math.min(Math.max(d.cx, r.left), r.left + el.clientWidth) - r.left + el.scrollLeft
+      const y = Math.min(Math.max(d.cy, r.top), r.bottom) - r.top + el.scrollTop
+      if (!d.active && Math.abs(x - d.x0) + Math.abs(y - d.y0) < 6) return
+      d.active = true
+      const b = bandRef.current
+      if (b) {
+        b.style.display = 'block'
+        b.style.left = `${Math.min(d.x0, x)}px`
+        b.style.top = `${Math.min(d.y0, y)}px`
+        b.style.width = `${Math.abs(x - d.x0)}px`
+        b.style.height = `${Math.abs(y - d.y0)}px`
+      }
+      const ids = hits(d.x0, d.y0, x, y)
+      const key = ids.join(',')
+      if (key === lastHits.current) return
+      lastHits.current = key
+      setSelected(new Set([...d.base, ...ids]))
+    }
+    // One frame loop while dragging: edge auto-scroll + band / selection.
+    const tick = (): void => {
+      const d = dragSel.current
+      if (!d || !el) return
+      const r = el.getBoundingClientRect()
+      const edge = 40
+      const dy = d.cy < r.top + edge ? -(r.top + edge - d.cy) : d.cy > r.bottom - edge ? d.cy - (r.bottom - edge) : 0
+      if (d.active && dy) el.scrollTop += Math.max(-30, Math.min(30, dy / 2))
+      update()
+      raf = requestAnimationFrame(tick)
+    }
+    const move = (e: globalThis.MouseEvent): void => {
+      const d = dragSel.current
+      if (!d) return
+      d.cx = e.clientX
+      d.cy = e.clientY
+      if (!raf) raf = requestAnimationFrame(tick)
+    }
+    const up = (e: globalThis.MouseEvent): void => {
+      const d = dragSel.current
+      if (!d) return
+      dragSel.current = null
+      cancelAnimationFrame(raf)
+      raf = 0
+      lastHits.current = ''
+      if (bandRef.current) bandRef.current.style.display = 'none'
+      if (d.active) {
+        suppressClick.current = true // the click that ends a drag opens nothing
+        window.setTimeout(() => (suppressClick.current = false), 0)
+      } else if (!(e.target as HTMLElement).closest('.cell, .lrow') && !(e.ctrlKey || e.metaKey || e.shiftKey)) setSelected(new Set())
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      cancelAnimationFrame(raf)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, setSelected])
+
   // Ctrl/⌘ toggles, Shift selects a range, a plain click opens the image.
   const onClick = (e: MouseEvent, i: number, img: ImageItem): void => {
+    if (suppressClick.current) return
     if (e.ctrlKey || e.metaKey) {
       const n = new Set(selected)
       if (n.has(img.id)) n.delete(img.id)
@@ -142,7 +280,7 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
       const i = r * cols + c
       const img = items[i]
       if (!img) break
-      const sel = selected.has(img.id) ? 'sel' : ''
+      const sel = `${selected.has(img.id) ? 'sel' : ''} ${flash === img.id ? 'found-flash' : ''}`
       if (list) {
         cells.push(
           <div
@@ -195,6 +333,7 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
     <div
       className={`grid ${list ? 'list' : ''}`}
       ref={ref}
+      onMouseDown={onGridMouseDown}
       onScroll={(e) => {
         const top = e.currentTarget.scrollTop
         topRef.current = top
@@ -204,6 +343,7 @@ export default function ThumbGrid({ items }: { items: ImageItem[] }): JSX.Elemen
       {/* keyed by the list: another node / filter fades the new list in */}
       <div key={listKey} className="grid-inner" style={{ height: PAD * 2 + rows * rowH }}>
         {cells}
+        <div ref={bandRef} className="sel-band" style={{ display: 'none' }} />
       </div>
       {menu}
     </div>

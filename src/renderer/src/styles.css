@@ -109,6 +109,17 @@ h2 {
   border-color: transparent;
   color: #fff;
 }
+.btn.danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: #fff;
+}
+.btn.danger:hover {
+  filter: brightness(0.92);
+}
+.mini.danger {
+  color: var(--danger);
+}
 .btn.primary:hover {
   background: var(--accent-2);
 }
@@ -556,6 +567,15 @@ button:active {
 }
 .grid-inner {
   position: relative;
+}
+/* drag selection */
+.sel-band {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  pointer-events: none;
 }
 .cell {
   position: absolute;
@@ -1782,6 +1802,11 @@ kbd {
 }
 .tree .tree-item.tree-flash {
   animation: tree-flash 1.6s ease-out;
+}
+/* 크게 보기 closed: the picture it showed pulses in the grid */
+.cell.found-flash .cell-img,
+.lrow.found-flash {
+  animation: org-flash 1.6s ease-out;
 }
 /* library search: suggestions drop under the box */
 .lib-search {
@@ -3153,6 +3178,24 @@ select.tag-input {
 .viewer.pop-closing {
   animation: fade-out 0.12s ease-in forwards;
 }
+.viewer-img.zoomed {
+  cursor: grab;
+  transition: transform 0.08s ease-out;
+}
+.viewer-img.zoomed.dragging {
+  cursor: grabbing;
+  transition: none;
+}
+/* zoomed in, the picture runs under the top bar: keep its text readable */
+.viewer:has(.viewer-img.zoomed) .viewer-top {
+  background: linear-gradient(rgba(8, 9, 12, 0.9), rgba(8, 9, 12, 0.6) 70%, transparent);
+}
+/* a zoomed picture stays under the bars and arrows */
+.viewer-top,
+.viewer .edit-bar,
+.viewer-arrow {
+  z-index: 2;
+}
 .viewer.pop-closing .viewer-img {
   animation: zoom-out 0.12s ease-in forwards;
 }
@@ -3211,4 +3254,10 @@ select.tag-input {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+/* 검토 actions: four buttons wrap instead of overflowing the side panel */
+.review-actions .flat-group {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 4px;
 }

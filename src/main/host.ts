@@ -5,7 +5,7 @@
 // apps, so it is locked while one of them uses it.
 import { BrowserWindow, clipboard, dialog, ipcMain, nativeImage, net, protocol, shell } from 'electron'
 import type { CustomScheme, OpenDialogOptions, SaveDialogOptions } from 'electron'
-import { mkdirSync, readFileSync, unlinkSync, watch, writeFileSync, type FSWatcher } from 'fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { SortaCore, CancelledError } from '../core'
@@ -24,6 +24,7 @@ export interface SortaHostOptions {
   // standalone app stays usable until Sorta is opened inside Halftone).
   lazy?: boolean
   window: () => BrowserWindow | null // parent for dialogs
+  icon?: string // for Sorta's own windows (구글 렌즈); packaged builds fall back to the exe icon
   send: (channel: string, payload: unknown) => void // to the Sorta renderer
   onTheme?: (theme: Settings['theme']) => void
   onSettingsSaved?: (patch: Partial<Settings>, s: Settings) => void
@@ -90,11 +91,12 @@ async function summarize<T>(p: Promise<T>, ok: (v: T) => string): Promise<JobSum
   }
 }
 
-function classifyJob(): Promise<JobSummary> {
-  learnRefreshSoon(500)
-  return summarize(core.runClassify().done, (r) =>
+async function classifyJob(): Promise<JobSummary> {
+  const r = await summarize(core.runClassify().done, (r) =>
     r === null ? '모델이 없어 분류를 건너뛰었습니다. 설정에서 모델을 받으세요.' : `${r.classified}장 분류${r.failed ? `, ${r.failed}장 실패` : ''}`
   )
+  learnRefreshSoon(0) // newly classified open pictures → compare with learned characters
+  return r
 }
 
 // Re-decide from stored scores; a failure shows as a toast instead of vanishing.
@@ -111,12 +113,54 @@ async function reorganizeJob(): Promise<void> {
   if (r.message) send(IPC.toast, r)
 }
 
+// 구글 렌즈로 찾기: the only feature that sends a picture out, so it needs
+// the opt-in setting and a click. Only pictures in the library; a downscaled
+// JPEG (no metadata) is posted to Lens in a separate window. Links opening a
+// new window go to the user's browser.
+let lensWin: BrowserWindow | null = null
+async function imageSearch(path: string): Promise<void> {
+  if (!core.settings().allowImageSearch) throw new Error('설정에서 "이미지 검색 허용"을 켜야 합니다')
+  if (!core.db.prepare('SELECT 1 FROM images WHERE path = ?').get(path)) throw new Error('라이브러리에 없는 그림입니다')
+  const sharp = (await import('sharp')).default
+  const jpeg = await sharp(path, { animated: false }).rotate().resize(1000, 1000, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer()
+  const boundary = `----sorta${Date.now().toString(16)}`
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="encoded_image"; filename="image.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`),
+    jpeg,
+    Buffer.from(`\r\n--${boundary}--\r\n`)
+  ])
+  if (!lensWin || lensWin.isDestroyed()) {
+    lensWin = new BrowserWindow({
+      width: 1180,
+      height: 860,
+      title: '구글 렌즈',
+      autoHideMenuBar: true,
+      ...(opts.icon && existsSync(opts.icon) ? { icon: opts.icon } : {}),
+      webPreferences: { partition: 'persist:sorta-lens', contextIsolation: true, nodeIntegration: false, sandbox: true }
+    })
+    lensWin.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https:\/\//.test(url)) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+  }
+  lensWin.show()
+  lensWin.focus()
+  await lensWin.loadURL('https://lens.google.com/v3/upload?hl=ko', {
+    postData: [{ type: 'rawData', bytes: body }],
+    extraHeaders: `Content-Type: multipart/form-data; boundary=${boundary}`
+  })
+}
+
 // Embed / rebuild references / compare with learned characters. Coalesced:
 // review clicks in a row trigger one refresh a moment later.
 let refreshTimer: NodeJS.Timeout | null = null
+// Only when something it depends on changed (new pictures, confirmations,
+// learned references, thresholds) — otherwise it would redo the same work.
 function learnRefreshSoon(ms = 2500): void {
   if (refreshTimer) clearTimeout(refreshTimer)
-  refreshTimer = setTimeout(() => void learnRefreshJob(), ms)
+  refreshTimer = setTimeout(() => void core.learnRefreshNeeded().then((need) => {
+    if (need) void learnRefreshJob()
+  }), ms)
 }
 async function learnRefreshJob(): Promise<JobSummary> {
   const r = await summarize(core.runLearnRefresh().done, (x) =>
@@ -289,6 +333,14 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle(IPC.duplicates, () => core.duplicates())
+  ipcMain.handle(IPC.trash, async (_e, ids: number[]) => {
+    const r = await summarize(core.runTrash(ids, (p) => shell.trashItem(p)).done, (x) =>
+      `${x.trashed}장을 휴지통으로 보냈습니다${x.failed.length ? ` · ${x.failed.length}장 실패` : ''} · 휴지통에서 복원할 수 있습니다`
+    )
+    learnRefreshSoon() // confirmed pictures may be gone → references change
+    return r
+  })
+  ipcMain.handle(IPC.imageSearch, (_e, p: string) => imageSearch(p))
   ipcMain.handle(IPC.setAside, (_e, ids: number[]) =>
     summarize(core.runSetAside(ids).done, (r) => `${r.moved}장을 정리 폴더의 "중복" 폴더로 옮겼습니다${r.failed.length ? ` · ${r.failed.length}장 실패` : ''} · Ctrl+Z로 되돌리기`)
   )
@@ -312,8 +364,16 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.images, (_e, f: LibraryFilter) => core.images(f))
   ipcMain.handle(IPC.showInFolder, (_e, p: string) => shell.showItemInFolder(p))
-  // Review decisions: each refreshes the library views.
+  // Edits: each refreshes the library views. Those that change the
+  // references (confirmed characters, merges) also re-compare the library.
   const mutate =
+    <A extends unknown[], R>(fn: (...a: A) => R) =>
+    (_e: unknown, ...a: A): R => {
+      const r = fn(...a)
+      changed()
+      return r
+    }
+  const mutateRefs =
     <A extends unknown[], R>(fn: (...a: A) => R) =>
     (_e: unknown, ...a: A): R => {
       const r = fn(...a)
@@ -339,10 +399,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC.setAliases, mutate((id: number, a: string[]) => core.setAliases(id, a)))
   ipcMain.handle(IPC.setSeries, mutate((ids: number[], s: string) => core.setSeries(ids, s)))
   ipcMain.handle(IPC.setAffiliation, mutate((ids: number[], n: string | null) => core.setAffiliation(ids, n)))
-  ipcMain.handle(IPC.mergeCharacters, mutate((f: number[], i: number) => core.mergeCharacters(f, i)))
-  ipcMain.handle(IPC.confirmCharacters, mutate((i: number[], c: number[]) => core.confirmCharacters(i, c)))
-  ipcMain.handle(IPC.addCharacter, mutate((i: number, c: number) => core.addCharacter(i, c)))
-  ipcMain.handle(IPC.markOther, mutate((i: number[]) => core.markOther(i)))
+  ipcMain.handle(IPC.mergeCharacters, mutateRefs((f: number[], i: number) => core.mergeCharacters(f, i)))
+  ipcMain.handle(IPC.confirmCharacters, mutateRefs((i: number[], c: number[]) => core.confirmCharacters(i, c)))
+  ipcMain.handle(IPC.addCharacter, mutateRefs((i: number, c: number) => core.addCharacter(i, c)))
+  ipcMain.handle(IPC.markOther, mutateRefs((i: number[]) => core.markOther(i)))
+  ipcMain.handle(IPC.markGroup, mutateRefs((i: number[], s: string | null) => core.markGroup(i, s)))
   ipcMain.handle(IPC.setRating, mutate((i: number[], r: Exclude<Rating, 'unknown'>) => core.setRating(i, r)))
   ipcMain.handle(IPC.createCharacter, (_e, n: string, s: string) => core.createCharacter(n, s))
   ipcMain.handle(IPC.searchCharacters, (_e, q: string) => core.searchCharacters(q))
@@ -350,6 +411,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.seriesNames, () => core.seriesNames())
   ipcMain.handle(IPC.undo, async () => {
     const r = await core.undo()
+    changed()
+    learnRefreshSoon()
+    return r
+  })
+  ipcMain.handle(IPC.redo, async () => {
+    const r = await core.redo()
     changed()
     learnRefreshSoon()
     return r

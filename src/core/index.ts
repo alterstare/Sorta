@@ -30,7 +30,7 @@ import type {
 import { openDb, schemaVersion } from './db'
 import type { Db } from './db'
 import { loadSettings, saveSettings } from './settings'
-import { JobQueue } from './queue'
+import { CancelledError, JobQueue } from './queue'
 import { ActionLog } from './actionLog'
 import type { Tagger } from './ml/types'
 import { CAMIE_SPEC, CCIP_SPEC, MODEL_SPECS, PIXAI_SPEC, TAGGER_SPEC, deleteModel, downloadModel, modelStatus } from './ml/models'
@@ -55,6 +55,8 @@ import type { JsonGet } from './pipeline/wiki'
 import * as booru from './pipeline/booru'
 import { stopTunnel } from './pipeline/booruNet'
 import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
+import { trashImages } from './trash'
+import type { TrashFn } from './trash'
 import type { LearnModels } from './pipeline/knn'
 import { displayName } from './pipeline/tags'
 import { buildVocab, searchVocab } from './pipeline/vocab'
@@ -298,6 +300,10 @@ export class SortaCore {
     review.addCharacter(this.db, this.log, imageId, characterId)
   }
 
+  markGroup(imageIds: number[], series: string | null = null): void {
+    review.markGroup(this.db, this.log, imageIds, series)
+  }
+
   markOther(imageIds: number[]): void {
     review.markOther(this.db, this.log, imageIds)
   }
@@ -350,6 +356,11 @@ export class SortaCore {
     return { ok: true, label: a ? ((a.payload as { label?: string }).label ?? a.type) : null }
   }
 
+  // Put back what the last undo reverted (this session only).
+  async redo(): Promise<UndoResult> {
+    return { ok: true, label: await this.log.redo() }
+  }
+
   // ---- character learning (Phase 3) ----
 
   private learnModels: Promise<LearnModels> | null = null
@@ -372,14 +383,41 @@ export class SortaCore {
   // Vectors for confirmed / open images → rebuild user references → compare
   // open images with the learned characters.
   runLearnRefresh(): { id: number; done: Promise<{ embedded: number; refs: number } | null> } {
+    // background: never blocks the app or other jobs (they go first)
     return this.queue.add('학습한 캐릭터 비교', async (ctx) => {
+      const sig = await this.learnInputs()
       const m = await this.getLearnModels()
-      if (!m) return null
+      if (!m) {
+        this.learnSig = sig
+        return null
+      }
       const embedded = await embedImages(this.db, m, imagesToEmbed(this.db), ctx)
-      const refs = refreshUserRefs(this.db)
-      matchImages(this.db, await this.decideOptions(), ctx)
+      if (ctx.signal.aborted) throw new CancelledError() // made way for another job: starts over later
+      const refs = await refreshUserRefs(this.db)
+      await matchImages(this.db, await this.decideOptions(), ctx)
+      if (ctx.signal.aborted) throw new CancelledError()
+      this.learnSig = sig
       return { embedded, refs }
-    })
+    }, { background: true })
+  }
+
+  // What the comparison depends on: pictures still to embed, the user's
+  // confirmations (→ references), learned references, the model, the
+  // thresholds. Unchanged since the last run → comparing again changes nothing.
+  private learnSig = ''
+  private async learnInputs(): Promise<string> {
+    const q = (sql: string): unknown => this.db.prepare(sql).get()
+    return JSON.stringify([
+      imagesToEmbed(this.db).length,
+      q(`SELECT COUNT(*) n, SUM(image_id) i, SUM(character_id) c FROM image_characters
+         WHERE source = 'user' AND status = 'confirmed' AND character_id IS NOT NULL`),
+      q("SELECT COUNT(*) n, SUM(character_id) c FROM refs WHERE source = 'booru'"),
+      (await modelStatus(this.paths.modelsDir, CCIP_SPEC)).installed,
+      await this.decideOptions()
+    ])
+  }
+  async learnRefreshNeeded(): Promise<boolean> {
+    return (await this.learnInputs()) !== this.learnSig
   }
 
   // Checks each candidate's usable picture count → runs as a job (progress).
@@ -611,6 +649,11 @@ export class SortaCore {
     return this.dupCache && this.dupCache.key === this.dupKey() ? this.dupCache.groups.reduce((n, g) => n + g.images.length, 0) : null
   }
   // Move duplicates to <정리 폴더>/중복 (hidden from the library). One undo step.
+  // 삭제 → the OS recycle bin (`trash` from the host), out of the library.
+  runTrash(ids: number[], trash: TrashFn): { id: number; done: Promise<{ trashed: number; failed: string[] }> } {
+    return this.queue.add('휴지통으로 보내기', () => trashImages(this.db, ids, trash, this.paths.thumbsDir))
+  }
+
   runSetAside(ids: number[]): { id: number; done: Promise<{ moved: number; failed: string[] }> } {
     return this.queue.add('중복 따로 두기', () => dupes.setAside(this.db, this.log, ids, this.settings().organizeDir))
   }

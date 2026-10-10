@@ -1,6 +1,6 @@
 // 검토 대기열 (CLAUDE.md §7 Review): one image at a time, keyboard-first.
 //   1/2/3 후보 체크 · Enter 확정 (체크 없으면 1순위) · / 직접 입력 · N 새 캐릭터
-//   S 건너뛰기 · X 캐릭터 아닌 그림 · R 등급 순환 · ←/→ 이동 · Ctrl+Z 되돌리기 (App)
+//   S 건너뛰기 · G 단체 사진 · X 캐릭터 아닌 그림 · R 등급 순환 · ←/→ 이동 · Ctrl+Z 되돌리기 (App)
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
@@ -8,7 +8,7 @@ import { useKept } from '../keep'
 import type { Rating, ReviewItem, ReviewKind } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
 import type { PickedCharacter } from './CharacterPicker'
-import { CheckIcon, CloseIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon, PersonOffIcon, SkipNextIcon, UndoIcon } from './icons'
+import { CheckIcon, CloseIcon, GroupsIcon, ImageSearchIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon, PersonOffIcon, SkipNextIcon, UndoIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
 
 type R = Exclude<Rating, 'unknown'>
@@ -22,6 +22,16 @@ const RATING_DESC: Record<R, string> = {
 export default function Review(): JSX.Element {
   const tree = useStore((s) => s.tree)
   const showToast = useStore((s) => s.showToast)
+  // 구글에서 찾기: the picture goes to Google Lens — opt-in, asked once here.
+  const allowSearch = useStore((s) => !!s.settings?.allowImageSearch)
+  const saveSettings = useStore((s) => s.saveSettings)
+  const [askSearch, setAskSearch] = useState<string | null>(null)
+  const imageSearch = (path: string): void => {
+    if (!allowSearch) return setAskSearch(path)
+    window.api.imageSearch(path).catch((e: Error) =>
+      showToast({ ok: false, message: `구글 렌즈를 열지 못했습니다: ${String(e.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}` })
+    )
+  }
   const libraryVersion = useStore((s) => s.libraryVersion)
   const [kind, setKind] = useKept<ReviewKind>('review.kind', 'character')
   const [items, setItems] = useKept<ReviewItem[]>('review.items', [])
@@ -103,6 +113,12 @@ export default function Review(): JSX.Element {
     await window.api.markOther([item.id])
     await after()
   }
+  // 단체 사진: pick the game first (suggested: the top candidate's)
+  const markGroup = (): void => {
+    if (!item) return
+    const suggest = item.confirmed[0]?.series ?? item.candidates[0]?.series ?? null
+    useStore.getState().setGroupShotDialog({ ids: [item.id], suggest, after: () => void after() })
+  }
   const skip = (d = 1): void => setIndex((i) => Math.max(0, Math.min(items.length - 1, i + d)))
   const cycleRating = (): void => setRating((r) => RATINGS[(RATINGS.indexOf(r) + 1) % RATINGS.length])
 
@@ -132,6 +148,7 @@ export default function Review(): JSX.Element {
         setNewMode(true)
       } else if (k === 's') skip()
       else if (k === 'x' && kind === 'character') void markOther()
+      else if (k === 'g' && kind === 'character') markGroup()
       else if (k === 'r') cycleRating()
       else if (k === 'arrowright') skip(1)
       else if (k === 'arrowleft') skip(-1)
@@ -177,7 +194,7 @@ export default function Review(): JSX.Element {
         )}
         <span className="review-keys">
           {kind === 'character'
-            ? '1·2·3 고르기 · Enter 확정 · 0 추가 없이 확정 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · X 캐릭터 아닌 그림 · R 등급 · Ctrl+Z 되돌리기'
+            ? '1·2·3 고르기 · Enter 확정 · 0 추가 없이 확정 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · G 단체 사진 · X 캐릭터 아닌 그림 · R 등급 · Ctrl+Z 되돌리기'
             : '1·2·3 등급 고르기 · Enter 확정 · S 건너뛰기 · Ctrl+Z 되돌리기'}
         </span>
       </div>
@@ -395,11 +412,21 @@ export default function Review(): JSX.Element {
                   건너뛰기
                 </button>
                 {kind === 'character' && (
+                  <button className="mini" title="누가 있는지 정하지 않고 단체 사진으로 분류 (게임을 고르면 정리 폴더/게임/단체)" onClick={() => markGroup()}>
+                    <GroupsIcon />
+                    단체 사진
+                  </button>
+                )}
+                {kind === 'character' && (
                   <button className="mini" onClick={() => void markOther()}>
                     <PersonOffIcon />
                     캐릭터 아닌 그림
                   </button>
                 )}
+                <button className="mini" title="구글 렌즈로 이 그림을 검색합니다" onClick={() => imageSearch(item.path)}>
+                  <ImageSearchIcon />
+                  구글에서 찾기
+                </button>
                 <button
                   className="mini"
                   onClick={() =>
@@ -412,6 +439,38 @@ export default function Review(): JSX.Element {
               </div>
             </div>
           </aside>
+        </div>
+      )}
+      {askSearch && (
+        <div className="modal-back" onMouseDown={() => setAskSearch(null)}>
+          <div className="modal small" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>구글 렌즈로 검색</h2>
+            </div>
+            <div className="row-desc">
+              이 그림을 작게 줄인 사본(JPEG)을 구글 렌즈에 올려 검색합니다. 그림이 PC 밖으로 나가는 기능이라 처음 한 번 허용이 필요합니다. 설정 →
+              이미지 검색 허용에서 언제든 끌 수 있습니다.
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setAskSearch(null)}>
+                취소
+              </button>
+              <button
+                className="btn primary"
+                autoFocus
+                onClick={() => {
+                  const p = askSearch
+                  setAskSearch(null)
+                  void saveSettings({ allowImageSearch: true }).then(() =>
+                    window.api.imageSearch(p).catch((e: Error) => showToast({ ok: false, message: `구글 렌즈를 열지 못했습니다: ${String(e.message ?? e)}` }))
+                  )
+                }}
+              >
+                <ImageSearchIcon />
+                허용하고 검색
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

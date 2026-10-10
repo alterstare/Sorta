@@ -68,6 +68,43 @@ describe('review queue', () => {
 })
 
 describe('decisions + undo', () => {
+  it('단체 사진으로만 분류: out of review and 미확인, kept through re-decision, organized to 단체, undoable', async () => {
+    const core = await setup()
+    const g = idOf(core, 'g.png')
+    core.markGroup([g])
+    expect(core.reviewQueue('character')).toHaveLength(0)
+    const tree = (): ReturnType<SortaCore['tree']>['counts'] => core.tree(['general', 'sensitive', 'r18']).counts
+    expect(tree().groupShot).toBe(1)
+    const shots = (): { id: number; kind: string }[] =>
+      core.images({ node: { type: 'groupShot' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
+    expect(shots().map((i) => [i.id, i.kind])).toEqual([[g, 'group']])
+    await core.runRedecide().done
+    expect(core.reviewQueue('character')).toHaveLength(0)
+    expect(core.images({ node: { type: 'unknown' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).some((i) => i.id === g)).toBe(false)
+    const { targetDir } = await import('../src/core/organize')
+    expect(targetDir({ kind: 'character', rating: 'general', group_only: 1, rows: [] }, new Map(), { splitByRating: false, moveAuto: true, thresholds: core.settings().thresholds })).toBe('단체')
+    expect(await core.undo()).toEqual({ ok: true, label: '단체 사진으로 분류' })
+    expect(core.reviewQueue('character')).toHaveLength(1)
+    expect(tree().groupShot).toBe(0)
+    // with a game: 게임/단체, listed under the game
+    core.markGroup([g], 'Blue Archive')
+    const t = core.tree(['general', 'sensitive', 'r18'])
+    const ba = t.series.find((x) => x.name === 'Blue Archive')!
+    expect(ba.groupShots).toBe(1)
+    expect(core.images({ node: { type: 'series', id: ba.id }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).some((i) => i.id === g)).toBe(true)
+    expect(core.images({ node: { type: 'groupShot', id: ba.id }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).map((i) => i.groupSeries)).toEqual(['Blue Archive'])
+    expect(
+      targetDir({ kind: 'character', rating: 'general', group_only: 1, group_series: 'Blue Archive', rows: [] }, new Map(), { splitByRating: false, moveAuto: true, thresholds: core.settings().thresholds })!.replace(/\\/g, '/')
+    ).toBe('Blue Archive/단체')
+    await core.undo()
+    expect(core.tree(['general', 'sensitive', 'r18']).series.find((x) => x.name === 'Blue Archive')!.groupShots).toBeUndefined()
+    // confirming characters clears it
+    core.markGroup([g])
+    core.confirmCharacters([g], [core.reviewQueue('character').length ? 0 : core.characters()[0].id])
+    expect(tree().groupShot).toBe(0)
+    core.close()
+  })
+
   it('confirm several characters, survive re-decision, undo restores', async () => {
     const core = await setup()
     const g = idOf(core, 'g.png')
@@ -86,6 +123,15 @@ describe('decisions + undo', () => {
     expect(names()).toEqual(['Hoshino:confirmed', 'Shiroko:confirmed'])
     expect(await core.undo()).toEqual({ ok: true, label: '캐릭터 확정' })
     expect(core.reviewQueue('character')).toHaveLength(1)
+    // redo puts the decision back; it can be undone again
+    expect(await core.redo()).toEqual({ ok: true, label: '캐릭터 확정' })
+    expect(names()).toEqual(['Hoshino:confirmed', 'Shiroko:confirmed'])
+    expect(await core.redo()).toEqual({ ok: true, label: null })
+    await core.undo()
+    expect(core.reviewQueue('character')).toHaveLength(1)
+    // a new action drops what could be redone
+    core.markOther([idOf(core, 'b.png')])
+    expect(await core.redo()).toEqual({ ok: true, label: null })
     core.close()
   })
 

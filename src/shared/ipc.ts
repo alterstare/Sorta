@@ -63,12 +63,16 @@ export const IPC = {
   confirmCharacters: 'sorta:review:confirm',
   addCharacter: 'sorta:review:add',
   markOther: 'sorta:review:other',
+  markGroup: 'sorta:review:group',
   setRating: 'sorta:review:rating',
   createCharacter: 'sorta:review:createCharacter',
   searchCharacters: 'sorta:review:search',
   characterFromTag: 'sorta:review:fromTag',
   seriesNames: 'sorta:review:series',
   undo: 'sorta:review:undo',
+  imageSearch: 'sorta:review:imageSearch',
+  trash: 'sorta:library:trash',
+  redo: 'sorta:review:redo',
   toast: 'sorta:app:toast',
   updateStatus: 'sorta:update:status',
   checkUpdate: 'sorta:update:check',
@@ -159,6 +163,7 @@ export interface Api {
   confirmCharacters: (imageIds: number[], characterIds: number[]) => Promise<void>
   addCharacter: (imageId: number, characterId: number) => Promise<void>
   markOther: (imageIds: number[]) => Promise<void>
+  markGroup: (imageIds: number[], series: string | null) => Promise<void> // 단체 사진으로만 분류 (game or null)
   setRating: (imageIds: number[], rating: Exclude<Rating, 'unknown'>) => Promise<void>
   createCharacter: (name: string, series: string) => Promise<number>
   searchCharacters: (q: string) => Promise<CharacterHit[]>
@@ -166,6 +171,9 @@ export interface Api {
   characterFromTag: (tag: string) => Promise<CharacterHit>
   seriesNames: () => Promise<string[]>
   undo: () => Promise<UndoResult>
+  imageSearch: (path: string) => Promise<void> // 구글 렌즈 window (needs allowImageSearch)
+  trash: (ids: number[]) => Promise<JobSummary> // 삭제 → OS recycle bin
+  redo: () => Promise<UndoResult> // what the last undo reverted, put back
   onToast: (cb: (t: JobSummary) => void) => () => void
   // 자동 업데이트 (packaged builds; GitHub Releases)
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => () => void

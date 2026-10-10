@@ -14,7 +14,7 @@ import Review from './components/Review'
 import LearnView from './components/LearnView'
 import SettingsView from './components/SettingsView'
 import ProgressBar from './components/ProgressBar'
-import { NewGroupDialog } from './components/ImageMenu'
+import { GroupShotDialog, NewGroupDialog, TrashDialog } from './components/ImageMenu'
 
 const NAV: [View, string, typeof PhotoLibraryIcon][] = [
   ['library', '라이브러리', PhotoLibraryIcon],
@@ -103,20 +103,41 @@ function Main(): JSX.Element {
   const counts = useStore((s) => s.tree?.counts)
   const reviewCount = (counts?.pending ?? 0) + (counts?.ratingReview ?? 0)
 
-  // Ctrl+Z anywhere (outside text fields) → undo the last decision.
+  // Anywhere (outside text fields): Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo.
+  // Mouse side buttons: back = undo, forward = redo.
   const undo = useStore((s) => s.undo)
+  const redo = useStore((s) => s.redo)
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) {
         e.preventDefault()
         void undo()
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault()
+        void redo()
       }
     }
+    // mousedown would also start the browser's own back / forward
+    const block = (e: MouseEvent): void => {
+      if (e.button === 3 || e.button === 4) e.preventDefault()
+    }
+    const onMouse = (e: MouseEvent): void => {
+      if (e.button === 3) (e.preventDefault(), void undo())
+      else if (e.button === 4) (e.preventDefault(), void redo())
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [undo])
+    window.addEventListener('mousedown', block)
+    window.addEventListener('mouseup', onMouse)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', block)
+      window.removeEventListener('mouseup', onMouse)
+    }
+  }, [undo, redo])
 
   // Inside Halftone: its tab-bar settings button opens Sorta's settings.
   useEffect(() => onHostSettings(() => setView('settings')), [setView])
@@ -163,6 +184,8 @@ function Main(): JSX.Element {
       {/* inside Halftone, jobs show in Halftone's activity bar */}
       {!embedded && <ProgressBar />}
       <NewGroupDialog />
+      <TrashDialog />
+      <GroupShotDialog />
       {toast && (
         <div className={`toast ${toast.ok ? '' : 'err'}`}>
           <span>{toast.message}</span>

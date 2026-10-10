@@ -2,7 +2,7 @@
 // run itself — a preview first (counts per folder), then one undoable move.
 import { useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { blocking, useStore } from '../store'
 import { useKept } from '../keep'
 import type { OrganizePlan } from '../../../shared/types'
 import { CloseIcon, DriveFileMoveIcon } from './icons'
@@ -12,7 +12,7 @@ export default function OrganizeCard(): JSX.Element | null {
   const [plan, setPlan] = useKept<OrganizePlan | null>('organize.plan', null)
   const [busy, setBusy] = useState(false)
   if (!settings) return null
-  const running = Object.keys(jobs).length > 0
+  const running = blocking(jobs)
 
   const preview = async (): Promise<void> => {
     setBusy(true)

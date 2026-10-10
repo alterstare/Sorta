@@ -2,7 +2,7 @@
 // 분류 · 정렬 · 보기 · 마스킹 · 격자/목록 · 순서 … 검색) + thumbnails.
 import { useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { blocking, useStore } from '../store'
 import type { RatingPick, SafeMode, SortKey } from '../../../shared/types'
 import {
   AddIcon,
@@ -67,7 +67,7 @@ export default function Library(): JSX.Element {
   const [busy, setBusy] = useState(false)
   // "숨기기" masking drops those images from the list (and the viewer).
   const items = useMemo(() => images.filter((i) => safeMode(i, settings) !== 'hide'), [images, settings])
-  const running = Object.keys(jobs).length > 0
+  const running = blocking(jobs)
 
   // 분류 checkboxes: 전체 ticks all three (remembering the selection before);
   // un-ticking 전체 brings that selection back (none remembered → 일반 only).

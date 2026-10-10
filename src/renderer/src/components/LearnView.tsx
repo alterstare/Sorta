@@ -4,7 +4,7 @@
 // references automatically.
 import { useEffect, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
-import { useStore } from '../store'
+import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { GameOption, LearnedCharacter, LearnPlanInfo } from '../../../shared/types'
 import { CheckIcon, DeleteIcon, DownloadIcon, PlayIcon, RestartIcon, SearchIcon } from './icons'
@@ -21,7 +21,7 @@ export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
   const [learned, setLearned] = useKept<LearnedCharacter[]>('learn.learned', [])
   const [q, setQ] = useKept('learn.q', '')
   const [hits, setHits] = useState<{ name: string; post_count: number }[]>([])
-  const running = Object.keys(jobs).length > 0
+  const running = blocking(jobs)
   const ccip = models.find((m) => m.id === 'ccip')
   const ready = !!ccip?.installed && !!settings?.allowWebLookup
   const libraryVersion = useStore((s) => s.libraryVersion)

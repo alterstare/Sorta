@@ -52,6 +52,7 @@ function treeCounts(db: Db, rc: string): {
   own: Map<number, number>
   root: Map<number, number>
   series: Map<number, number>
+  groupShots: Map<number, number>
   groups: Map<number, number>
   counts: TreeCounts
 } {
@@ -72,10 +73,18 @@ function treeCounts(db: Db, rc: string): {
        FROM image_characters ic JOIN characters c ON c.id = ic.character_id JOIN images i ON i.id = ic.image_id
        WHERE ${SORTED}${and} GROUP BY k`
     ),
+    // a game's pictures: its characters' + its 단체 사진
     series: map(
-      `SELECT c.series_id AS k, COUNT(DISTINCT ic.image_id) AS n
-       FROM image_characters ic JOIN characters c ON c.id = ic.character_id JOIN images i ON i.id = ic.image_id
-       WHERE ${SORTED}${and} GROUP BY c.series_id`
+      `SELECT k, COUNT(DISTINCT id) AS n FROM (
+         SELECT c.series_id AS k, i.id AS id
+         FROM image_characters ic JOIN characters c ON c.id = ic.character_id JOIN images i ON i.id = ic.image_id
+         WHERE ${SORTED}${and}
+         UNION ALL
+         SELECT i.group_series_id AS k, i.id AS id FROM images i WHERE i.group_only = 1 AND i.group_series_id IS NOT NULL${and}
+       ) GROUP BY k`
+    ),
+    groupShots: map(
+      `SELECT i.group_series_id AS k, COUNT(*) AS n FROM images i WHERE i.group_only = 1 AND i.group_series_id IS NOT NULL${and} GROUP BY k`
     ),
     groups: map(`SELECT g.group_id AS k, COUNT(*) AS n FROM image_groups g JOIN images i ON i.id = g.image_id${where} GROUP BY g.group_id`),
     counts: {
@@ -87,10 +96,11 @@ function treeCounts(db: Db, rc: string): {
       ),
       ratingReview: one(`SELECT COUNT(*) AS n FROM images i WHERE i.rating_review = 1${and}`),
       unknown: one(
-        `SELECT COUNT(*) AS n FROM images i WHERE i.classified_at IS NOT NULL AND i.kind <> 'other'
+        `SELECT COUNT(*) AS n FROM images i WHERE i.classified_at IS NOT NULL AND i.kind <> 'other' AND i.group_only = 0
            AND NOT EXISTS (SELECT 1 FROM image_characters ic WHERE ic.image_id = i.id AND ic.status IN ('auto','confirmed','pending'))${and}`
       ),
       other: one(`SELECT COUNT(*) AS n FROM images i WHERE i.kind = 'other'${and}`),
+      groupShot: one(`SELECT COUNT(*) AS n FROM images i WHERE i.group_only = 1${and}`),
       unclassified: one(`SELECT COUNT(*) AS n FROM images i WHERE i.classified_at IS NULL${and}`),
       setAside: one(`SELECT COUNT(*) AS n FROM images i WHERE i.set_aside = 1${rc ? ` AND ${rc}` : ''}`)
     }
@@ -140,6 +150,18 @@ export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: n
     const n = all.own.get(r.cid) ?? 0
     if (r.pid === null || !n) continue
     nodes.get(r.pid)?.children!.push({ id: r.cid, name: r.cname, tag: r.tag, count: n, shown: shown('own', r.cid) })
+  }
+  // a game with only 단체 사진 still shows; each game lists its 단체 사진
+  const seriesName = new Map((db.prepare('SELECT id, name FROM series').all() as { id: number; name: string }[]).map((r) => [r.id, r.name]))
+  for (const [sid, n] of all.groupShots) {
+    if (!n) continue
+    let s = seriesMap.get(sid)
+    if (!s) {
+      s = { id: sid, name: seriesName.get(sid) ?? '', count: all.series.get(sid) ?? 0, shown: shown('series', sid), affiliations: [], characters: [] }
+      seriesMap.set(sid, s)
+    }
+    s.groupShots = n
+    s.groupShotsShown = shown('groupShots', sid)
   }
   const series = [...seriesMap.values()].sort(sortByName)
   for (const s of series) {
@@ -196,8 +218,8 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
   const params: Record<string, unknown> = {}
   const n = f.node
   if (n.type === 'series') {
-    where.push(`EXISTS (SELECT 1 FROM image_characters ic JOIN characters c ON c.id = ic.character_id
-                WHERE ic.image_id = i.id AND ${SORTED} AND c.series_id = @nid)`)
+    where.push(`(EXISTS (SELECT 1 FROM image_characters ic JOIN characters c ON c.id = ic.character_id
+                WHERE ic.image_id = i.id AND ${SORTED} AND c.series_id = @nid) OR (i.group_only = 1 AND i.group_series_id = @nid))`)
     params.nid = n.id
   } else if (n.type === 'character') {
     // A base character includes its outfit versions.
@@ -220,9 +242,13 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
   } else if (n.type === 'ratingReview') {
     where.push('i.rating_review = 1')
   } else if (n.type === 'unknown') {
-    where.push(`i.classified_at IS NOT NULL AND i.kind <> 'other' AND NOT EXISTS (SELECT 1 FROM image_characters ic
+    where.push(`i.classified_at IS NOT NULL AND i.kind <> 'other' AND i.group_only = 0 AND NOT EXISTS (SELECT 1 FROM image_characters ic
                 WHERE ic.image_id = i.id AND ic.status IN ('auto','confirmed','pending'))`)
   } else if (n.type === 'other') where.push("i.kind = 'other'")
+  else if (n.type === 'groupShot') {
+    where.push(n.id === undefined ? 'i.group_only = 1' : 'i.group_only = 1 AND i.group_series_id = @nid')
+    if (n.id !== undefined) params.nid = n.id
+  }
   else if (n.type === 'unclassified') where.push('i.classified_at IS NULL')
   where.push(n.type === 'setAside' ? 'i.set_aside = 1' : 'i.set_aside = 0')
   const rc = filterClause(f.ratings, f.groups)
@@ -236,7 +262,9 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
   }
   const rows = db
     .prepare(
-      `SELECT i.id, i.path, i.thumbnail_path, i.width, i.height, i.rating, i.rating_review, i.kind, i.dup_of, i.error,
+      `SELECT i.id, i.path, i.thumbnail_path, i.width, i.height, i.rating, i.rating_review,
+              CASE WHEN i.group_only = 1 THEN 'group' ELSE i.kind END AS kind, i.dup_of, i.error,
+              (SELECT name FROM series WHERE id = i.group_series_id) AS group_series,
               i.file_size, i.file_mtime, i.imported_at, i.favorite, i.stars
        FROM images i ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`
     )
@@ -249,6 +277,7 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
     rating: ImageItem['rating']
     rating_review: number
     kind: ImageItem['kind']
+    group_series: string | null
     dup_of: number | null
     error: string | null
     file_size: number | null
@@ -287,6 +316,7 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
     rating: r.rating,
     ratingReview: !!r.rating_review,
     kind: r.kind,
+    groupSeries: r.group_series,
     dupOf: r.dup_of,
     error: r.error,
     fileSize: r.file_size,

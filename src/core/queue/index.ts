@@ -1,6 +1,11 @@
 // In-process background job queue. Heavy work (import, inference, moves) runs
 // here, never in an IPC handler. Jobs report progress through `onProgress`;
 // a job can be cancelled while queued or (cooperatively) while running.
+//
+// Background jobs (e.g. comparing with learned characters) step aside: when
+// any other job is added, a running background job is stopped (it must honor
+// the abort signal) and queued again after it — its promise settles only when
+// it finally completes.
 import type { ProgressEvent } from '../../shared/types'
 
 export interface JobContext {
@@ -17,6 +22,8 @@ interface Entry {
   ctrl: AbortController
   resolve: (v: unknown) => void
   reject: (e: unknown) => void
+  background: boolean
+  preempted: boolean
 }
 
 export class CancelledError extends Error {
@@ -45,7 +52,7 @@ export class JobQueue {
 
   // Queue a job; the promise settles with its result (rejects with
   // CancelledError when cancelled).
-  add<T>(label: string, fn: JobFn<T>): { id: number; done: Promise<T> } {
+  add<T>(label: string, fn: JobFn<T>, opts: { background?: boolean } = {}): { id: number; done: Promise<T> } {
     const id = ++this.seq
     let resolve!: (v: unknown) => void
     let reject!: (e: unknown) => void
@@ -53,8 +60,20 @@ export class JobQueue {
       resolve = res as (v: unknown) => void
       reject = rej
     })
-    this.waiting.push({ id, label, fn: fn as JobFn<unknown>, ctrl: new AbortController(), resolve, reject })
-    this.emit({ jobId: id, label, done: 0, total: 0, state: 'queued' })
+    const background = !!opts.background
+    const entry: Entry = { id, label, fn: fn as JobFn<unknown>, ctrl: new AbortController(), resolve, reject, background, preempted: false }
+    if (background) this.waiting.push(entry)
+    else {
+      // ahead of waiting background jobs; a running one makes way
+      const at = this.waiting.findIndex((w) => w.background)
+      this.waiting.splice(at < 0 ? this.waiting.length : at, 0, entry)
+      for (const r of this.running.values())
+        if (r.background && !r.preempted) {
+          r.preempted = true
+          r.ctrl.abort()
+        }
+    }
+    this.emit({ jobId: id, label, done: 0, total: 0, state: 'queued', background })
     this.pump()
     return { id, done }
   }
@@ -69,6 +88,7 @@ export class JobQueue {
     }
     const r = this.running.get(id)
     if (r) {
+      r.preempted = false // the user's cancel wins over "make way"
       r.ctrl.abort()
       return true
     }
@@ -91,15 +111,23 @@ export class JobQueue {
     let last: { done: number; total: number; unit?: 'bytes' } = { done: 0, total: 0 }
     const report = (done: number, total: number, label?: string, unit?: 'bytes'): void => {
       last = { done, total, unit }
-      this.emit({ jobId: e.id, label: label ?? e.label, done, total, unit, state: 'running' })
+      this.emit({ jobId: e.id, label: label ?? e.label, done, total, unit, state: 'running', background: e.background })
     }
-    this.emit({ jobId: e.id, label: e.label, done: 0, total: 0, state: 'running' })
+    this.emit({ jobId: e.id, label: e.label, done: 0, total: 0, state: 'running', background: e.background })
     try {
       const v = await e.fn({ signal: e.ctrl.signal, report })
-      if (e.ctrl.signal.aborted) throw new CancelledError()
-      this.emit({ jobId: e.id, label: e.label, ...last, state: 'done' })
+      if (e.ctrl.signal.aborted) throw new CancelledError() // stopped (or made way: runs again)
+      this.emit({ jobId: e.id, label: e.label, ...last, state: 'done', background: e.background })
       e.resolve(v)
     } catch (err) {
+      if (e.preempted) {
+        // made way for another job: run again later, same promise
+        e.preempted = false
+        e.ctrl = new AbortController()
+        this.waiting.push(e)
+        this.emit({ jobId: e.id, label: e.label, done: 0, total: 0, state: 'queued', background: true })
+        return
+      }
       const cancelled = e.ctrl.signal.aborted || err instanceof CancelledError
       this.emit({
         jobId: e.id,

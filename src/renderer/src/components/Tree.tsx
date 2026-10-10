@@ -197,6 +197,7 @@ export default function Tree(): JSX.Element {
               <>
                 {affItems(s.affiliations, 1)}
                 {charItems(s.characters, 0)}
+                {!!s.groupShots && item({ type: 'groupShot', id: s.id }, '단체 사진', s.groupShots, s.groupShotsShown, 'char group-shot', 34)}
               </>
             )}
           </div>
@@ -206,6 +207,7 @@ export default function Tree(): JSX.Element {
       {item({ type: 'pending' }, '캐릭터 검토', c.pending, f?.pending)}
       {item({ type: 'ratingReview' }, '등급 확인', c.ratingReview, f?.ratingReview)}
       {item({ type: 'unknown' }, '미확인', c.unknown, f?.unknown)}
+      {item({ type: 'groupShot' }, '단체 사진', c.groupShot, f?.groupShot)}
       {item({ type: 'other' }, '캐릭터 아닌 그림', c.other, f?.other)}
       {item({ type: 'unclassified' }, '분류 전', c.unclassified, f?.unclassified)}
       <div className="tree-sep" />

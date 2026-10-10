@@ -4,7 +4,8 @@
 //   <정리 폴더>/[등급/]게임/소속/              several, all in one affiliation
 //                                            (the deepest one they share)
 //   <정리 폴더>/[등급/]게임/단체/              several, same game (mixed / many)
-//   <정리 폴더>/[등급/]단체/                   several games
+//   <정리 폴더>/[등급/]단체/                   several games, or a 단체 사진 without a game
+//   (a 단체 사진 of one game goes to 게임/단체/)
 //   <정리 폴더>/[등급/]기타/                   캐릭터 아닌 그림
 // Only moves — file contents are never touched, nothing is deleted. A run is
 // one undo step; images already organized follow later classification changes.
@@ -52,12 +53,13 @@ function charInfo(db: Db): Map<number, CharInfo> {
 // Folder (relative to the organize root) an image belongs in, or null when it
 // isn't settled (something still in review / unknown).
 export function targetDir(
-  img: { kind: string; rating: Rating; rows: { character_id: number | null; status: string }[] },
+  img: { kind: string; rating: Rating; group_only?: number; group_series?: string | null; rows: { character_id: number | null; status: string }[] },
   chars: Map<number, CharInfo>,
   s: Pick<Settings, 'splitByRating' | 'thresholds' | 'moveAuto'>
 ): string | null {
   const top = s.splitByRating ? [RATING_DIR[img.rating]] : []
   if (img.kind === 'other') return join(...top, OTHER_DIR)
+  if (img.group_only) return img.group_series ? join(...top, safeName(img.group_series), GROUP_DIR) : join(...top, GROUP_DIR)
   const rows = img.rows
   if (!rows.length || rows.some((r) => r.status === 'pending' || r.status === 'unknown' || r.character_id === null)) return null
   if (!s.moveAuto && rows.some((r) => r.status === 'auto')) return null // wait for the user's confirmation
@@ -92,13 +94,17 @@ function settledImages(db: Db, where: string): {
   path: string
   kind: string
   rating: Rating
+  group_only: number
+  group_series: string | null
   organized_path: string | null
   rows: { character_id: number | null; status: string }[]
 }[] {
-  const imgs = db.prepare(`SELECT id, path, kind, rating, organized_path FROM images WHERE set_aside = 0 AND ${where}`).all() as {
+  const imgs = db.prepare(`SELECT id, path, kind, rating, group_only, (SELECT name FROM series WHERE id = images.group_series_id) AS group_series, organized_path FROM images WHERE set_aside = 0 AND ${where}`).all() as {
     id: number
     path: string
     kind: string
+    group_only: number
+    group_series: string | null
     rating: Rating
     organized_path: string | null
   }[]
@@ -179,6 +185,18 @@ export function registerOrganizeUndo(log: ActionLog, db: Db): void {
       if (!existsSync(m.to) || existsSync(m.from)) continue
       await moveFile(m.to, m.from)
       db.prepare('UPDATE images SET path = ?, organized_path = ? WHERE id = ?').run(m.from, m.prevOrganized, m.id)
+    }
+  }, (p) => {
+    const cur = db.prepare('SELECT organized_path FROM images WHERE id = ?')
+    return {
+      label: p.label,
+      // undone in reverse → redo in the original order, each file back to `to`
+      moves: [...p.moves].reverse().map((m) => ({
+        id: m.id,
+        from: m.to,
+        to: m.from,
+        prevOrganized: (cur.get(m.id) as { organized_path: string | null } | undefined)?.organized_path ?? null
+      }))
     }
   })
 }

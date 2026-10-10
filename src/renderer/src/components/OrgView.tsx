@@ -5,7 +5,7 @@
 // user accepts them. Every change is one Ctrl+Z step.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, JSX, ReactNode } from 'react'
-import { useStore } from '../store'
+import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { WikiRow } from '../store'
 import type { OrgChart, OrgCharacter, OrgNode, WikiSuggestion } from '../../../shared/types'
@@ -62,7 +62,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
   const looking = !!orgLookup?.running
   const found = mine && mine.rows ? { wiki: mine.wiki ?? '', rows: mine.rows } : null
   const setFound = (f: { rows: WikiRow[] } | null): void => (f ? setOrgRows(f.rows) : clearOrgLookup())
-  const running = Object.keys(jobs).length > 0
+  const running = blocking(jobs)
 
   useEffect(() => {
     void window.api.characters().then((cs) => {

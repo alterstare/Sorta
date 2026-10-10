@@ -52,6 +52,11 @@ interface State {
   update: UpdateStatus
   // "새 그룹" dialog: the images that go into the new group (null = closed)
   groupDialog: number[] | null
+  // 단체 사진으로 분류: pick the game
+  groupShotDialog: { ids: number[]; suggest: string | null; after?: () => void } | null
+  setGroupShotDialog: (d: { ids: number[]; suggest: string | null; after?: () => void } | null) => void
+  trashDialog: number[] | null // 삭제 확인
+  setTrashDialog: (ids: number[] | null) => void
   setGroupDialog: (ids: number[] | null) => void
   // rename dialog for a group (null = closed)
   renameGroup: { id: number; name: string } | null
@@ -63,6 +68,7 @@ interface State {
   setOrgRows: (rows: WikiRow[]) => void
   clearOrgLookup: () => void
   undo: () => Promise<void>
+  redo: () => Promise<void>
   setView: (v: View) => void
   load: () => Promise<void>
   saveSettings: (patch: Partial<Settings>) => Promise<void>
@@ -82,6 +88,9 @@ interface State {
   goToNode: (node: LibraryNode) => void // search pick: open the node, the tree scrolls to it
   treeReveal: { node: LibraryNode; n: number } | null
 }
+
+// A job that holds other actions back (the background comparison never does).
+export const blocking = (jobs: Record<number, { background?: boolean }>): boolean => Object.values(jobs).some((j) => !j.background)
 
 let librarySeq = 0
 let toastTimer: ReturnType<typeof setTimeout> | null = null
@@ -104,6 +113,10 @@ export const useStore = create<State>((set, get) => ({
   kept: {},
   update: { state: 'idle' },
   groupDialog: null,
+  groupShotDialog: null,
+  setGroupShotDialog: (groupShotDialog) => set({ groupShotDialog }),
+  trashDialog: null,
+  setTrashDialog: (trashDialog) => set({ trashDialog }),
   setGroupDialog: (groupDialog) => set({ groupDialog }),
   renameGroup: null,
   setRenameGroup: (renameGroup) => set({ renameGroup }),
@@ -131,6 +144,10 @@ export const useStore = create<State>((set, get) => ({
   undo: async () => {
     const r = await window.api.undo()
     get().showToast({ ok: true, message: r.label ? `되돌리기 완료: ${r.label}` : '되돌릴 작업이 없습니다.' })
+  },
+  redo: async () => {
+    const r = await window.api.redo()
+    get().showToast({ ok: true, message: r.label ? `다시 실행 완료: ${r.label}` : '다시 실행할 작업이 없습니다.' })
   },
   setView: (view) => set({ view }),
   load: async () => {

@@ -86,6 +86,14 @@ describe('folder organizing', () => {
     expect(await core.undo()).toMatchObject({ label: '폴더 정리 (5장)' })
     expect(where(core, 'hoshino.png')).toBe('src/hoshino.png')
     expect(existsSync(join(src, 'hoshino.png'))).toBe(true)
+    // redo moves them again; undo once more brings them back
+    expect(await core.redo()).toMatchObject({ label: '폴더 정리 (5장)' })
+    expect(where(core, 'hoshino.png')).toBe('sorted/Blue Archive/Hoshino/hoshino.png')
+    expect(existsSync(join(out, 'Blue Archive', 'Hoshino', 'hoshino.png'))).toBe(true)
+    expect(existsSync(join(src, 'hoshino.png'))).toBe(false)
+    expect(core.organizePlan().moves).toHaveLength(0)
+    await core.undo()
+    expect(where(core, 'hoshino.png')).toBe('src/hoshino.png')
     core.close()
   })
 
@@ -153,6 +161,12 @@ describe('character management', () => {
     expect(await core.undo()).toMatchObject({ label: '캐릭터 합치기' })
     expect(duo().sort()).toEqual(['Shiroko', '호시노'])
     expect(list().find((c) => c.id === shiroko.id)!.affiliation).toBe('Abydos')
+    // redo merges again (Shiroko gone), undo restores her again
+    expect(await core.redo()).toMatchObject({ label: '캐릭터 합치기' })
+    expect(list().some((c) => c.id === shiroko.id)).toBe(false)
+    expect(duo()).toEqual(['호시노'])
+    await core.undo()
+    expect(duo().sort()).toEqual(['Shiroko', '호시노'])
 
     core.setSeries([hoshino.id], 'Other Game')
     expect(list().find((c) => c.id === hoshino.id)!.series).toBe('Other Game')

@@ -46,9 +46,15 @@ function restore(db: Db, s: Snap): void {
     db.pragma('defer_foreign_keys = ON')
     for (const a of s.affiliations) insertRow(db, 'affiliations', a)
     for (const c of s.characters) insertRow(db, 'characters', c)
+    // In scope but absent from the snapshot = didn't exist then (only a redo
+    // of a merge meets this: the merged-away characters go again).
+    const had = new Set(s.characters.map((c) => c.id as number))
+    const gone = s.learnedIds.filter((id) => !had.has(id))
+    if (gone.length) db.prepare(`DELETE FROM characters WHERE id IN (${gone.map(() => '?').join(',')})`).run(...gone)
     const iph = s.imageRows.imageIds.map(() => '?').join(',')
     if (iph) db.prepare(`DELETE FROM image_characters WHERE image_id IN (${iph})`).run(...s.imageRows.imageIds)
-    for (const r of s.imageRows.rows) insertRow(db, 'image_characters', r)
+    const exists = db.prepare('SELECT 1 FROM images WHERE id = ?')
+    for (const r of s.imageRows.rows) if (exists.get(r.image_id)) insertRow(db, 'image_characters', r) // skip thrown-away pictures
     const up = db.prepare('UPDATE refs SET character_id = ? WHERE id = ?')
     for (const r of s.refs) up.run(r.character_id, r.id)
     const lph = s.learnedIds.map(() => '?').join(',')
@@ -59,7 +65,11 @@ function restore(db: Db, s: Snap): void {
 
 export const MANAGE_ACTION = 'manage.edit'
 export function registerManageUndo(log: ActionLog, db: Db): void {
-  log.register<Snap>(MANAGE_ACTION, (s) => restore(db, s))
+  log.register<Snap>(
+    MANAGE_ACTION,
+    (s) => restore(db, s),
+    (s) => snapshot(db, s.learnedIds, s.label)
+  )
 }
 
 function edit(db: Db, log: ActionLog, charIds: number[], label: string, fn: () => void): void {

@@ -1,7 +1,7 @@
 // 설정: source folders + import, model download, display, thresholds, data.
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import { embedded } from '../embed'
 import type { AssistMode, ModelId, Thresholds } from '../../../shared/types'
@@ -92,7 +92,7 @@ export default function SettingsView(): JSX.Element {
     void saveSettings({ thresholds: draft })
     setDraft(null)
   }
-  const running = Object.keys(jobs).length > 0
+  const running = blocking(jobs)
 
   const run = async (kind: 'import' | 'classify' | 'model', fn: () => Promise<{ ok: boolean; message: string }>): Promise<void> => {
     setBusy(kind)
@@ -294,6 +294,26 @@ export default function SettingsView(): JSX.Element {
                 key={String(v)}
                 className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`}
                 onClick={() => void saveSettings({ allowWebLookup: v })}
+              >
+                {v ? '허용' : '차단'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">이미지 검색 허용</div>
+            <div className="row-desc">
+              검토 화면의 "구글에서 찾기"를 누르면 그 그림(작게 줄인 사본)을 구글 렌즈에 올려 검색합니다. 그림이 PC 밖으로 나가는 유일한 기능이며,
+              누를 때만 그 한 장을 보냅니다.
+            </div>
+          </div>
+          <div className="flat-group">
+            {[true, false].map((v) => (
+              <button
+                key={String(v)}
+                className={`mini ${settings.allowImageSearch === v ? 'on' : ''}`}
+                onClick={() => void saveSettings({ allowImageSearch: v })}
               >
                 {v ? '허용' : '차단'}
               </button>

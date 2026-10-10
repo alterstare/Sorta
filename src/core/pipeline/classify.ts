@@ -148,9 +148,11 @@ export function applyTagResult(db: Db, imageId: number, st: StoredTags, o: Decid
     }
     db.prepare("DELETE FROM image_characters WHERE image_id = ? AND source = 'auto'").run(imageId)
     // User decisions win: confirmed characters, or "캐릭터 아님".
+    const img = db.prepare('SELECT kind, group_only FROM images WHERE id = ?').get(imageId) as { kind: string; group_only: number }
     const hasUser =
       db.prepare("SELECT 1 FROM image_characters WHERE image_id = ? AND source = 'user'").get(imageId) ||
-      (db.prepare('SELECT kind FROM images WHERE id = ?').get(imageId) as { kind: string }).kind === 'other'
+      img.kind === 'other' ||
+      img.group_only === 1
     const rows = decideEnsemble(scoresFor(st, o.assistMode), o.t, o.ignored)
     if (!hasUser) {
       const ins = db.prepare(

@@ -45,7 +45,11 @@ function restore(db: Db, s: OrgSnap): void {
 
 export const ORG_ACTION = 'org.edit'
 export function registerOrgUndo(log: ActionLog, db: Db): void {
-  log.register<OrgSnap>(ORG_ACTION, (s) => restore(db, s))
+  log.register<OrgSnap>(
+    ORG_ACTION,
+    (s) => restore(db, s),
+    (s) => snapshot(db, s.seriesId, s.label)
+  )
 }
 
 function edit<T>(db: Db, log: ActionLog, seriesId: number, label: string, fn: () => T): T {

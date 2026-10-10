@@ -176,6 +176,15 @@ export const MIGRATIONS: string[] = [
     b INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
     PRIMARY KEY (a, b)
   );
+  `,
+  // v9 — 단체 사진으로만 분류: the user says "a group shot", without naming
+  // who is in it (→ <정리 폴더>/단체).
+  `
+  ALTER TABLE images ADD COLUMN group_only INTEGER NOT NULL DEFAULT 0;
+  `,
+  // v10 — a 단체 사진 can name its game (→ <정리 폴더>/게임/단체).
+  `
+  ALTER TABLE images ADD COLUMN group_series_id INTEGER REFERENCES series(id) ON DELETE SET NULL;
   `
 ]
 

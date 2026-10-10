@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   learnSensitive: true,
   useGpu: true,
   allowWebLookup: false,
+  allowImageSearch: false,
   autoUpdate: true,
   theme: 'light',
   wheelNavigate: true,
