@@ -6,8 +6,6 @@ import type * as Ort from 'onnxruntime-node'
 import { gpuProvider } from './gpu'
 import type { Box, Detector, Embedder, RgbImage } from './types'
 
-export const CCIP_SAME_COS = 1 - 2 * 0.17847511429108218 // ≈ 0.643
-
 let ortMod: typeof Ort | null = null
 async function ort(): Promise<typeof Ort> {
   if (!ortMod) ortMod = (await import('onnxruntime-node')) as typeof Ort

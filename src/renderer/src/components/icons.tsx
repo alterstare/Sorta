@@ -95,7 +95,6 @@ export function FavoriteIcon({ className, filled }: IconProps & { filled?: boole
   )
 }
 export const StarIcon = mkIcon('m5.825 21l1.625-7.025L2 9.25l7.2-.625L12 2l2.8 6.625l7.2.625l-5.45 4.725L18.175 21L12 17.275z')
-export const GridIcon = mkIcon('M2 10V2h8v8zm0 12v-8h8v8zm12-12V2h8v8zm0 12v-8h8v8z')
 export const ListIcon = mkIcon('M3 18v-2h18v2zm0-5v-2h18v2zm0-5V6h18v2z')
 export const ContentCopyIcon = mkIcon(
   'M9 18q-.825 0-1.412-.587T7 16V4q0-.825.588-1.412T9 2h9q.825 0 1.413.588T20 4v12q0 .825-.587 1.413T18 18zm-4 4q-.825 0-1.412-.587T3 20V6h2v14h11v2z'

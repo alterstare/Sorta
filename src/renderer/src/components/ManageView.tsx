@@ -34,7 +34,7 @@ export default function ManageView({ tabs }: { tabs: ReactNode }): JSX.Element {
       void refreshLibrary()
       return true
     } catch (e) {
-      showToast({ ok: false, message: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+      showToast({ ok: false, message: String((e as Error).message ?? e) })
       return false
     }
   }

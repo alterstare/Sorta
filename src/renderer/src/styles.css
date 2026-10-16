@@ -13,6 +13,8 @@
   --accent: #7132f5;
   --accent-2: #5741d8;
   --accent-soft: rgba(133, 91, 251, 0.16);
+  --accent-hover: #ebe4ff; /* hover fill: opaque light purple */
+  --hover-filter: brightness(1.08); /* hover on a solid (purple / selected) button */
   --danger: #e5484d;
   --press-filter: brightness(0.9);
   --shadow-subtle: rgba(0, 0, 0, 0.03) 0px 4px 24px;
@@ -34,6 +36,8 @@
   --accent: #8b5cf6;
   --accent-2: #7132f5;
   --accent-soft: rgba(133, 91, 251, 0.22);
+  --accent-hover: #2f2750;
+  --hover-filter: brightness(1.12);
   --danger: #ff5d6c;
   --press-filter: brightness(1.18);
   --shadow-subtle: rgba(0, 0, 0, 0.45) 0px 4px 24px;
@@ -52,6 +56,10 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
+  /* Korean wraps between words, never inside one; an over-long run
+     (a URL, a title with no spaces) still breaks rather than overflow */
+  word-break: keep-all;
+  overflow-wrap: break-word;
   font-family: 'IBM Plex Sans', 'Helvetica Neue', Helvetica, Arial, 'Malgun Gothic', sans-serif;
   font-size: 14px;
   user-select: none;
@@ -100,8 +108,7 @@ h2 {
   transition: background-color 0.12s ease-out, border-color 0.12s ease-out, color 0.12s ease-out;
 }
 .btn:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 .btn.primary {
@@ -121,7 +128,7 @@ h2 {
   color: var(--danger);
 }
 .btn.primary:hover {
-  background: var(--accent-2);
+  filter: var(--hover-filter);
 }
 .mini {
   display: inline-flex;
@@ -175,8 +182,7 @@ button:active {
   border-color: transparent;
 }
 .flat-group .mini:not(.on):hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 .icon-btn {
@@ -194,7 +200,7 @@ button:active {
 }
 .icon-btn:hover,
 .icon-btn.on {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 
@@ -228,11 +234,12 @@ button:active {
   overflow: hidden;
 }
 .page {
+  /* the scroller spans the window (scrollbar at its edge); the content is
+     centred at --page-w by the side padding */
+  --page-w: 880px;
   height: 100%;
   overflow: auto;
-  padding: 28px 32px;
-  max-width: 880px;
-  margin: 0 auto;
+  padding: 28px max(32px, calc((100% - var(--page-w)) / 2 + 32px));
 }
 
 /* ---------- library ---------- */
@@ -247,10 +254,6 @@ button:active {
   background: var(--bg-1);
   overflow: auto;
   padding: 12px;
-}
-.tree-head {
-  font-weight: 700;
-  margin-bottom: 8px;
 }
 .tree-empty {
   color: var(--muted);
@@ -284,13 +287,6 @@ button:active {
   background: var(--line);
   pointer-events: none;
 }
-.tb-label {
-  display: inline-flex;
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
 .grid {
   flex: 1;
   overflow: auto;
@@ -298,15 +294,6 @@ button:active {
   display: grid;
   gap: 10px;
   align-content: start;
-}
-.grid.size-s {
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-}
-.grid.size-m {
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-}
-.grid.size-l {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 .empty {
   grid-column: 1 / -1;
@@ -445,8 +432,7 @@ button:active {
   cursor: pointer;
 }
 .tree-item:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 .tree-item.on {
@@ -489,7 +475,7 @@ button:active {
   cursor: pointer;
 }
 .tree-caret:hover {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .tree-sep {
   height: 1px;
@@ -545,7 +531,7 @@ button:active {
 .search-clear:hover,
 .status-cancel:hover,
 .toast-x:hover {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .toolbar {
   flex-wrap: wrap;
@@ -825,7 +811,7 @@ button:active {
   height: 16px;
 }
 .stepper-btn:hover:not(:disabled) {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 .stepper-btn:disabled {
@@ -850,7 +836,7 @@ button:active {
   cursor: pointer;
 }
 .reset-btn:hover:not(:disabled) {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 .reset-btn:disabled {
@@ -895,7 +881,7 @@ button:active {
   cursor: pointer;
 }
 .tag-chip button:hover {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .tag-input {
   height: 30px;
@@ -911,29 +897,6 @@ button:active {
 }
 .tag-input:focus {
   border-color: var(--accent);
-}
-.row-warn {
-  margin-top: 2px;
-  color: #c97a12;
-}
-.assist-help {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: var(--r3);
-  background: var(--bg-2);
-  font-size: 12px;
-  color: var(--text-dim);
-  line-height: 1.5;
-}
-.assist-help b {
-  color: var(--text);
-}
-.assist-help .hint {
-  color: var(--accent);
-  font-weight: 700;
 }
 
 /* ---------- review ---------- */
@@ -984,7 +947,7 @@ button:active {
   color: var(--text-dim);
 }
 .review-stage .viewer-arrow:hover:not(:disabled) {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
   color: var(--text-hover);
 }
 .review-stage .viewer-arrow:disabled {
@@ -1038,8 +1001,7 @@ button:active {
   transition: border-color 0.12s, background-color 0.12s;
 }
 .cand:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .cand.on {
   border-color: var(--accent);
@@ -1459,16 +1421,6 @@ kbd {
   border-radius: var(--r4);
   background: var(--bg-2);
 }
-.learn-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-.learn-stats b {
-  color: var(--accent);
-}
 .learn-plan .btn.primary {
   align-self: flex-start;
 }
@@ -1725,7 +1677,7 @@ kbd {
 }
 .page.manage,
 .page.unknown {
-  max-width: 1240px;
+  --page-w: 1240px;
 }
 .manage-list .search-box {
   display: flex;
@@ -1743,7 +1695,7 @@ kbd {
 
 /* ---- 소속 조직도 ---- */
 .page.org {
-  max-width: none;
+  --page-w: 100%;
 }
 .org-bar {
   display: flex;
@@ -2050,7 +2002,6 @@ select.tag-input {
   transition: border-color 0.12s, background-color 0.12s;
 }
 .choice-card:hover:not(:disabled) {
-  border-color: var(--accent);
 }
 .choice-card.on {
   border-color: var(--accent);
@@ -2130,8 +2081,7 @@ select.tag-input {
   position: relative;
 }
 .mini.open {
-  background: var(--accent-soft) !important;
-  border-color: var(--accent) !important;
+  background: var(--accent-hover) !important;
   color: var(--text-hover);
 }
 .dropmenu-panel {
@@ -2168,7 +2118,7 @@ select.tag-input {
   white-space: nowrap;
 }
 .menu-opt:hover {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .menu-box {
   width: 16px;
@@ -2271,7 +2221,7 @@ select.tag-input {
   border-left: 1px solid var(--line);
 }
 .seg-btn:hover {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .seg-btn.heart.on {
   color: var(--danger);
@@ -2308,7 +2258,7 @@ select.tag-input {
   cursor: pointer;
 }
 .group-pop-opt:hover {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .group-pop-opt.new {
   color: var(--accent);
@@ -2408,7 +2358,7 @@ select.tag-input {
   white-space: nowrap;
 }
 .ctx-item:hover:not(:disabled) {
-  background: var(--accent-soft);
+  background: var(--accent-hover);
 }
 .ctx-item:disabled {
   color: var(--muted);
@@ -2617,7 +2567,7 @@ select.tag-input {
 .page.manage,
 .page.org,
 .page.learn {
-  max-width: 1240px;
+  --page-w: 1240px;
 }
 
 /* ---- 조직도: root on the left, branches to the right, siblings stacked ----
@@ -2902,7 +2852,8 @@ select.tag-input {
 }
 .mini.primary:hover:not(:disabled),
 .flat-group .mini.primary:not(.on):hover:not(:disabled) {
-  background: var(--accent-2);
+  background: var(--accent);
+  filter: var(--hover-filter);
   border-color: transparent;
   color: #fff;
 }
@@ -3260,4 +3211,21 @@ select.tag-input {
   flex-wrap: wrap;
   justify-content: center;
   row-gap: 4px;
+}
+
+/* ===== Hover: opaque light-purple fill (same rule as Halftone / Env) =====
+   Controls and cards fill with --accent-hover on hover; no purple outline is
+   added. Solid purple buttons only brighten (--hover-filter). The rules above
+   were converted to this. Grid cells (작품 칸: image cells, character cards)
+   keep a purple outline on hover, the same as Halftone and Env. */
+.choice-card:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: var(--hover-filter);
+}
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger);
+  filter: var(--hover-filter);
 }

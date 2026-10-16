@@ -123,7 +123,7 @@ export function GroupShotDialog(): JSX.Element | null {
             if (e.key === 'Escape') close()
           }}
         >
-          <option value="">게임 모름</option>
+          <option value="">게임 미지정</option>
           {list.map((n) => (
             <option key={n} value={n}>
               {n}
@@ -216,7 +216,7 @@ export function NewGroupDialog(): JSX.Element | null {
         showToast({ ok: true, message: '그룹 이름 변경 · Ctrl+Z로 되돌리기' })
         close()
       } catch (e) {
-        showToast({ ok: false, message: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+        showToast({ ok: false, message: String((e as Error).message ?? e) })
       }
     } else if (await createGroup(name, ids ?? [])) close()
   }

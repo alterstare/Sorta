@@ -15,6 +15,8 @@ protocol.registerSchemesAsPrivileged([SORTA_SCHEME])
 
 // Window / taskbar icon: the multi-size .ico on Windows (each size drawn for
 // itself, so the title bar's 16–24 px icon stays clean), a PNG elsewhere.
+const themeBg = (t: string): string => (t === 'dark' ? '#0b0d13' : '#f4f5f8') // = --bg
+
 const DEV_ICON = join(__dirname, process.platform === 'win32' ? '../../build/icon.ico' : '../../build/icons/256x256.png')
 
 function createWindow(theme: 'light' | 'dark'): void {
@@ -25,7 +27,7 @@ function createWindow(theme: 'light' | 'dark'): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: theme === 'dark' ? '#0b0d13' : '#f4f5f8',
+    backgroundColor: themeBg(theme),
     ...(existsSync(DEV_ICON) ? { icon: DEV_ICON } : {}),
     show: false,
     webPreferences: {
@@ -101,12 +103,19 @@ else {
       icon: DEV_ICON,
       window: () => win,
       send: (ch, payload) => win?.webContents.send(ch, payload),
-      onTheme: (t) => (nativeTheme.themeSource = t),
+      onTheme: (t) => {
+        nativeTheme.themeSource = t
+        win?.setBackgroundColor(themeBg(t)) // a reload (F5) shows this colour first
+      },
       onSettingsSaved: (patch, s) => {
         if ('autoUpdate' in patch) applyAutoUpdate(s.autoUpdate)
       }
     })
     const core = sortaCore()
+    // Preload asks for the theme synchronously (first paint already themed).
+    ipcMain.on('sorta:themeSync', (e) => {
+      e.returnValue = sortaCore()?.settings().theme ?? 'light'
+    })
     createWindow(core?.settings().theme ?? 'light')
     setupAutoUpdate(core?.settings().autoUpdate ?? true)
   })

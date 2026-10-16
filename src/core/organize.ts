@@ -10,7 +10,7 @@
 // Only moves — file contents are never touched, nothing is deleted. A run is
 // one undo step; images already organized follow later classification changes.
 import { promises as fs, existsSync } from 'fs'
-import { basename, dirname, extname, join, relative, resolve } from 'path'
+import { basename, dirname, extname, join, resolve } from 'path'
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
 import type { JobContext } from './queue'
@@ -231,4 +231,3 @@ export async function executeMoves(
   return { moved: done.length, failed }
 }
 
-export const relTo = (root: string, p: string): string => relative(root, p)

@@ -4,7 +4,7 @@ import { useStore } from './store'
 import type { ImageItem } from '../../shared/types'
 
 const toast = (ok: boolean, message: string): void => useStore.getState().showToast({ ok, message })
-const err = (e: unknown): string => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+const err = (e: unknown): string => String((e as Error)?.message ?? e)
 
 export async function toggleFavorite(imgs: ImageItem[]): Promise<void> {
   const on = !imgs.every((i) => i.favorite)

@@ -1,6 +1,6 @@
 // 라이브러리: left tree (게임 → 캐릭터) + Explorer-style toolbar (분류 실행 ·
 // 분류 · 정렬 · 보기 · 마스킹 · 격자/목록 · 순서 … 검색) + thumbnails.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { blocking, useStore } from '../store'
 import type { RatingPick, SafeMode, SortKey } from '../../../shared/types'
@@ -28,6 +28,7 @@ import SelectionBar from './SelectionBar'
 import DropMenu, { MenuOption, MenuSection } from './DropMenu'
 import DupView from './DupView'
 import Setup from './Setup'
+import { embedded } from '../embed'
 
 const ALL: RatingPick[] = ['general', 'sensitive', 'r18']
 const RATING_NAMES: [RatingPick, string][] = [
@@ -58,6 +59,49 @@ export default function Library(): JSX.Element {
   // 그룹 filter: checked groups only (none checked = every picture); deleted groups drop out.
   const groups = tree?.groups ?? []
   const selectedCount = useStore((s) => s.selected.size)
+  // Don't let the window get narrower than the bottom toolbar's full row (its
+  // last items — 마스킹 · n장 — would be cut off). Re-measured whenever the
+  // bar or any of its items changes size (labels, tree pane). Inside Halftone
+  // the window is Halftone's: measured against it while 캐릭터 분류 shows,
+  // released (0) while the frame is hidden.
+  const [bottomBar, setBottomBar] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!bottomBar) return
+    const frame = embedded ? (window.frameElement as HTMLElement | null) : null
+    const outerWidth = (): number => {
+      try {
+        return embedded ? window.top!.innerWidth : window.innerWidth
+      } catch {
+        return window.innerWidth
+      }
+    }
+    const measure = (): void => {
+      const items = Array.from(bottomBar.children) as HTMLElement[]
+      if (!items.length) return
+      if ((frame && frame.style.display === 'none') || !bottomBar.clientWidth) return window.api.setMinWidth(0)
+      const cs = getComputedStyle(bottomBar)
+      // Items sit one divider gap apart (the 2nd item's margin); the count's
+      // margin is `auto` (pushed right), which reads as the leftover space.
+      const gap = items.length > 1 ? parseFloat(getComputedStyle(items[1]).marginLeft) || 0 : 0
+      let natural = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + gap * (items.length - 1)
+      for (const c of items) natural += c.offsetWidth
+      window.api.setMinWidth(outerWidth() - bottomBar.clientWidth + natural)
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(bottomBar)
+    for (const c of Array.from(bottomBar.children)) ro.observe(c)
+    // Halftone shows / hides the frame through its inline display style. A
+    // hidden frame gets no animation frames, so release the width right away.
+    const mo = frame
+      ? new MutationObserver(() => (frame.style.display === 'none' ? window.api.setMinWidth(0) : requestAnimationFrame(measure)))
+      : null
+    if (frame) mo!.observe(frame, { attributes: true, attributeFilter: ['style'] })
+    return () => {
+      ro.disconnect()
+      mo?.disconnect()
+      window.api.setMinWidth(0)
+    }
+  }, [bottomBar])
   const groupSel = (filter.groups ?? []).filter((id) => groups.some((g) => g.id === id))
   const groupLabel = !groupSel.length
     ? '그룹: 전체'
@@ -126,7 +170,7 @@ export default function Library(): JSX.Element {
           <LibrarySearch />
         </div>
         {/* bottom row: 격자/목록 · 차순 | 분류 · 그룹 · 정렬 · 보기 · 마스킹 … count */}
-        <div className="toolbar bottom">
+        <div className="toolbar bottom" ref={setBottomBar}>
           <div className="flat-group">
             <button
               className="mini icon"

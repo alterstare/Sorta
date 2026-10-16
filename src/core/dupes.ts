@@ -136,7 +136,7 @@ export async function setAside(db: Db, log: ActionLog, ids: number[], organizeDi
     const r = db.prepare('SELECT path FROM images WHERE id = ?').get(id) as { path: string } | undefined
     if (!r) continue
     try {
-      if (!existsSync(r.path)) throw new Error('원본이 없음')
+      if (!existsSync(r.path)) throw new Error('원본이 없습니다')
       const to = uniqueTarget(dir, basename(r.path), claimed)
       await moveFile(r.path, to)
       up.run(to, id)

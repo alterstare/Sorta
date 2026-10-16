@@ -236,6 +236,22 @@ function registerIpc(): void {
     schemaVersion: core.schemaVersion
   }))
   ipcMain.handle(IPC.getSettings, () => core.settings())
+  // Keep the window wide enough for the library toolbar (마스킹 · n장 never cut
+  // off): never below the window's own minimum, set at creation. 0 = the
+  // library isn't showing (other view / Halftone left 캐릭터 분류) → that minimum.
+  let baseMin: number[] | null = null
+  ipcMain.on(IPC.setMinWidth, (_e, need: number) => {
+    const w = opts.window()
+    if (!w || w.isDestroyed()) return
+    if (!baseMin) baseMin = w.getMinimumSize()
+    const frame = w.getSize()[0] - w.getContentSize()[0]
+    const width = need > 0 ? Math.max(baseMin[0], Math.ceil(need) + frame) : baseMin[0]
+    w.setMinimumSize(width, baseMin[1])
+    // A raised minimum doesn't resize the window by itself (Windows applies it
+    // on the next drag) → widen a narrower window now.
+    const [cw, ch] = w.getSize()
+    if (cw < width && !w.isMaximized() && !w.isFullScreen()) w.setSize(width, ch)
+  })
   ipcMain.handle(IPC.saveSettings, (_e, patch: Partial<Settings>) => {
     const s = core.saveSettings(patch)
     opts.onTheme?.(s.theme)

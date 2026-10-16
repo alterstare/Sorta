@@ -243,7 +243,7 @@ export default function Tree(): JSX.Element {
           items={[
             { label: '캐릭터 이름 복사', icon: <ContentCopyIcon />, onClick: () => void copyText(charMenu.name, '이름 복사') },
             {
-              label: charMenu.tag ? `캐릭터 태그 복사 (${charMenu.tag})` : '캐릭터 태그 복사 (태그 없음)',
+              label: charMenu.tag ? `캐릭터 태그 복사 (${charMenu.tag})` : '캐릭터 태그 복사 (태그 미지정)',
               icon: <ContentCopyIcon />,
               disabled: !charMenu.tag,
               onClick: () => void copyText(charMenu.tag!, '태그 복사')

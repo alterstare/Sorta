@@ -29,7 +29,7 @@ export default function Review(): JSX.Element {
   const imageSearch = (path: string): void => {
     if (!allowSearch) return setAskSearch(path)
     window.api.imageSearch(path).catch((e: Error) =>
-      showToast({ ok: false, message: `구글 렌즈를 열지 못했습니다: ${String(e.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}` })
+      showToast({ ok: false, message: `구글 렌즈를 열지 못했습니다: ${String(e.message ?? e)}` })
     )
   }
   const libraryVersion = useStore((s) => s.libraryVersion)

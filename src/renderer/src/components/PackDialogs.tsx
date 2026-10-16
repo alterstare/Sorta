@@ -115,7 +115,7 @@ export function ImportDialog({ file, onClose }: { file: string; onClose: () => v
     window.api
       .previewPack(file, { overwrite, learned })
       .then((p) => (setPv(p), setErr('')))
-      .catch((e) => setErr(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+      .catch((e) => setErr(String((e as Error).message ?? e)))
   }, [file, overwrite, learned])
   const go = async (): Promise<void> => {
     setBusy(true)

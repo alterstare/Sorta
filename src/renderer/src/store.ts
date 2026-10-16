@@ -136,7 +136,7 @@ export const useStore = create<State>((set, get) => ({
       })
     } catch (e) {
       set({ orgLookup: null })
-      get().showToast({ ok: false, message: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+      get().showToast({ ok: false, message: String((e as Error).message ?? e) })
     }
   },
   setOrgRows: (rows) => set((s) => (s.orgLookup ? { orgLookup: { ...s.orgLookup, rows } } : {})),

@@ -30,6 +30,7 @@ export const IPC = {
   appInfo: 'sorta:app:info',
   getSettings: 'sorta:settings:get',
   saveSettings: 'sorta:settings:save',
+  setMinWidth: 'sorta:window:minWidth',
   progress: 'sorta:queue:progress',
   cancelJob: 'sorta:queue:cancel',
   pickFolder: 'sorta:dialog:pickFolder',
@@ -123,6 +124,9 @@ export interface Api {
   appInfo: () => Promise<AppInfo>
   getSettings: () => Promise<Settings>
   saveSettings: (patch: Partial<Settings>) => Promise<Settings>
+  // The narrowest window width (content px) that still fits the library
+  // toolbar; the window can't be resized below it. 0 = back to the default.
+  setMinWidth: (width: number) => void
   onProgress: (cb: (e: ProgressEvent) => void) => () => void
   cancelJob: (id: number) => Promise<boolean>
   pickFolder: () => Promise<string | null>

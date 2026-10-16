@@ -1,6 +1,6 @@
 // Right-click menu at the cursor, with one level of submenus (as in
 // Halftone). Closes on outside click, Esc, scroll, resize or a leaf click.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { KeyboardArrowRightIcon } from './icons'
@@ -15,8 +15,28 @@ export interface MenuItem {
   separator?: boolean // draws a line above
 }
 
+// A submenu that would run past the window's bottom / right edge moves up /
+// opens to the left instead.
+function useFit(open: boolean): React.RefObject<HTMLDivElement | null> {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!open || !el) return
+    const r = el.getBoundingClientRect()
+    if (r.bottom > window.innerHeight - 8) el.style.top = `${el.offsetTop - (r.bottom - window.innerHeight + 8)}px`
+    if (r.right > window.innerWidth - 8) {
+      el.style.left = 'auto'
+      el.style.right = '100%'
+      el.style.marginLeft = '0'
+      el.style.marginRight = '2px'
+    }
+  }, [open])
+  return ref
+}
+
 function Row({ item, onClose }: { item: MenuItem; onClose: () => void }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const subRef = useFit(open)
   const sep = item.separator ? <div className="ctx-sep" /> : null
   if (item.children) {
     return (
@@ -29,7 +49,7 @@ function Row({ item, onClose }: { item: MenuItem; onClose: () => void }): JSX.El
             <KeyboardArrowRightIcon />
           </span>
           {open && (
-            <div className="ctx-submenu">
+            <div className="ctx-submenu" ref={subRef}>
               {item.children.map((c, i) => (
                 <Row key={i} item={c} onClose={onClose} />
               ))}
