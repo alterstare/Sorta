@@ -3,6 +3,10 @@
 import sharp from 'sharp'
 import type { RgbImage } from '../ml/types'
 
+// libvips' operation cache keeps source files open; on Windows that locks
+// them, so 폴더 정리 can't move them (EBUSY). Off for the whole process.
+sharp.cache(false)
+
 const open = (path: string): sharp.Sharp => sharp(path, { pages: 1, failOn: 'none', limitInputPixels: 0 })
 
 export async function probe(path: string): Promise<{ width: number; height: number }> {

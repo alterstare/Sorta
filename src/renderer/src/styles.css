@@ -1120,6 +1120,7 @@ button:active {
   gap: 6px;
 }
 .picker-new input {
+  flex: none; /* the shared flex: 1 above squashes it in this column */
   height: 34px;
   padding: 0 10px;
   border: 1px solid var(--line);
@@ -2413,6 +2414,10 @@ select.tag-input {
   gap: 10px;
   margin-left: auto;
   margin-right: 14px;
+}
+/* the viewer is dark in both themes: unset stars must not look lit */
+.viewer-rate .star:not(.on) {
+  color: rgba(255, 255, 255, 0.22);
 }
 
 /* 조직도: inputs stay inside their box; character chips centered. */
