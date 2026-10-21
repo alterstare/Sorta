@@ -177,8 +177,8 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
 
   return (
     <div ref={pageRef} className="page org">
-      <div className="page-head">
-        <h1>캐릭터</h1>
+      <div className="page-head stack">
+        <h1>관리</h1>
         {tabs}
       </div>
       <p className="hint">

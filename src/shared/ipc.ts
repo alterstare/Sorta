@@ -34,6 +34,7 @@ export const IPC = {
   progress: 'sorta:queue:progress',
   cancelJob: 'sorta:queue:cancel',
   pickFolder: 'sorta:dialog:pickFolder',
+  smbConnect: 'sorta:smb:connect',
   runImport: 'sorta:pipeline:import',
   runClassify: 'sorta:pipeline:classify',
   runAssist: 'sorta:pipeline:assist',
@@ -55,6 +56,8 @@ export const IPC = {
   pickPack: 'sorta:pack:pick',
   previewPack: 'sorta:pack:preview',
   importPack: 'sorta:pack:import',
+  restorePack: 'sorta:pack:restore',
+  writeLibraryFile: 'sorta:libfile:write',
   setAside: 'sorta:dup:setAside',
   notDuplicate: 'sorta:dup:notDup',
   images: 'sorta:library:images',
@@ -130,6 +133,8 @@ export interface Api {
   onProgress: (cb: (e: ProgressEvent) => void) => () => void
   cancelJob: (id: number) => Promise<boolean>
   pickFolder: () => Promise<string | null>
+  // NAS (SMB, Windows): save the login in Windows and check the folder; returns its UNC path.
+  smbConnect: (opts: { address: string; user?: string; password?: string }) => Promise<{ ok: boolean; path?: string; error?: string }>
   // Import, then classify when a model is installed.
   runImport: () => Promise<JobSummary>
   runClassify: () => Promise<JobSummary>
@@ -154,6 +159,9 @@ export interface Api {
   pickPack: () => Promise<string | null>
   previewPack: (file: string, o: { overwrite: boolean; learned: boolean }) => Promise<PackPreview>
   importPack: (file: string, o: { overwrite: boolean; learned: boolean }) => Promise<JobSummary>
+  // A file with pictures (분류 결과): also registers them under my organize folder.
+  restorePack: (file: string, o: { overwrite: boolean; learned: boolean }) => Promise<JobSummary>
+  writeLibraryFile: () => Promise<JobSummary> // 분류 정보 파일 지금 저장
   // 중복 정리
   duplicates: () => Promise<DupGroup[]>
   setAside: (ids: number[]) => Promise<JobSummary> // → <정리 폴더>/중복, one undo step

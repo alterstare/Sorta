@@ -31,6 +31,12 @@ export interface Settings {
   sourceDirs: string[] // folders scanned for images
   watch: boolean // auto-import new files in sourceDirs
   organizeDir: string // root the sorted originals are moved into ('' = not set)
+  // 분류 정보 파일: keep <organizeDir>/.sorta/library.sortapack up to date
+  // (games, 소속, characters, every organized picture's 분류 결과) so another
+  // install reads the folder back already classified (core/libfile.ts).
+  libraryFile: boolean
+  libraryFileLearned: boolean // with 학습 데이터 (learned + my confirmed pictures' vectors)
+  libraryFileStamps: Record<string, number> // organize folder → createdAt of the file last written / read
   moveAuto: boolean // also move auto-confirmed images (else only user-confirmed)
   splitByRating: boolean // 일반/ · 민감/ · R-18/ top folders
   safeR18: SafeMode
@@ -358,6 +364,9 @@ export interface PackExportOptions {
   seriesIds?: number[] // games to include (default: all)
   includeLearned: boolean // learned reference vectors
   includeUserRefs: boolean // vectors from my own confirmed pictures (off by default)
+  // Also every picture under this folder (the organize folder) with its 분류 결과;
+  // then all games go in and my own vectors travel per picture.
+  filesRoot?: string
 }
 export interface PackPreview {
   games: number
@@ -371,4 +380,5 @@ export interface PackPreview {
   modelMismatch: boolean // learned data made with another model → skipped
   app: string
   createdAt: number
+  files: number // pictures with their 분류 결과 in the file (0 = games / characters only)
 }

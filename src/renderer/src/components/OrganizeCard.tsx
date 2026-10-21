@@ -8,10 +8,11 @@ import type { OrganizePlan } from '../../../shared/types'
 import { CloseIcon, DriveFileMoveIcon } from './icons'
 
 export default function OrganizeCard(): JSX.Element | null {
-  const { settings, saveSettings, showToast, jobs, refreshLibrary } = useStore()
+  const { settings, settingsDraft, editSettings, showToast, jobs, refreshLibrary } = useStore()
+  const cur = settingsDraft ?? settings
   const [plan, setPlan] = useKept<OrganizePlan | null>('organize.plan', null)
   const [busy, setBusy] = useState(false)
-  if (!settings) return null
+  if (!settings || !cur) return null
   const running = blocking(jobs)
 
   const preview = async (): Promise<void> => {
@@ -35,7 +36,7 @@ export default function OrganizeCard(): JSX.Element | null {
   const choice = <K extends 'moveAuto' | 'splitByRating'>(key: K, opts: [boolean, string][]): JSX.Element => (
     <div className="flat-group">
       {opts.map(([v, label]) => (
-        <button key={String(v)} className={`mini ${settings[key] === v ? 'on' : ''}`} onClick={() => void saveSettings({ [key]: v })}>
+        <button key={String(v)} className={`mini ${cur[key] === v ? 'on' : ''}`} onClick={() => editSettings({ [key]: v })}>
           {label}
         </button>
       ))}
@@ -51,8 +52,8 @@ export default function OrganizeCard(): JSX.Element | null {
           <div className="row-desc">자동 확정된 그림도 옮길지, 직접 확인한 그림만 옮길지 정합니다. 검토 · 미확인 그림은 옮기지 않습니다.</div>
         </div>
         {choice('moveAuto', [
-          [true, '자동 확정 포함'],
-          [false, '직접 확인만']
+          [false, '직접 확인만'],
+          [true, '자동 확정 포함']
         ])}
       </div>
       <div className="row">
@@ -61,8 +62,8 @@ export default function OrganizeCard(): JSX.Element | null {
           <div className="row-desc">일반 · 민감 · R-18 폴더를 맨 위에 두고 그 아래에 게임 폴더를 만듭니다.</div>
         </div>
         {choice('splitByRating', [
-          [true, '분리'],
-          [false, '통합']
+          [false, '통합'],
+          [true, '분리']
         ])}
       </div>
       <div className="row">

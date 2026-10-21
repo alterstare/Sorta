@@ -185,6 +185,33 @@ button:active {
   background: var(--accent-hover);
   color: var(--text-hover);
 }
+/* 제거 · 삭제: red text, red highlight on hover */
+.flat-group .mini.danger:not(.on),
+.mini.flat.danger {
+  color: var(--danger);
+}
+.flat-group .mini.danger:not(.on):not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+.flat-group .mini.danger:disabled {
+  color: var(--muted);
+}
+/* a lone flat button stacked above a row's choice group (분류 정보 파일 · 지금 저장) */
+.row-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.mini.flat {
+  background: transparent;
+  border-color: transparent;
+}
+.mini.flat:not(:disabled):hover {
+  background: var(--accent-hover);
+  color: var(--text-hover);
+}
 .icon-btn {
   width: 36px;
   height: 36px;
@@ -343,6 +370,13 @@ button:active {
 .value {
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
+}
+/* 설정: 취소 / 저장 (Halftone 설정과 같은 자리) */
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 4px 0 8px;
 }
 .version {
   text-align: center;
@@ -1505,6 +1539,47 @@ kbd {
 .page-head h1 {
   margin: 0;
 }
+/* 관리: the title on its own line, tabs + buttons on the line below */
+.page-head.stack {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.page-head.stack h1 {
+  flex-basis: 100%;
+}
+
+/* NAS 폴더 추가 (SMB) */
+.modal.nas-modal {
+  width: min(560px, 94vw);
+}
+.nas-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 10px;
+}
+.nas-field .tag-input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.nas-row {
+  display: flex;
+  gap: 10px;
+}
+.nas-modal .modal-foot {
+  align-items: center;
+  margin-top: 14px;
+}
+.nas-msg {
+  flex: 1;
+}
+.nas-err {
+  color: var(--danger);
+}
 
 /* ---- 캐릭터 관리 ---- */
 .manage-body {
@@ -2045,10 +2120,6 @@ select.tag-input {
 .choice-need {
   font-size: 11px;
   color: var(--muted);
-}
-.th-dirty {
-  color: var(--accent);
-  font-weight: 600;
 }
 
 /* Library toolbar (Explorer-like): actions · menus · view toggles … search. */

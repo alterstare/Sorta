@@ -5,13 +5,19 @@
 //
 // Import merges: games / 소속 / characters are matched by tag, name or
 // earlier name; my placements win unless `overwrite`. One undo step.
+//
+// Version 2 can also carry the 분류 결과 of every picture under the organize
+// folder (`files`, paths relative to that folder) and the picture groups —
+// the 정리 폴더 file (libfile.ts) and a full export. Readers that only want the
+// games / characters ignore them.
 import { gunzipSync, gzipSync } from 'zlib'
+import { relative, resolve, sep } from 'path'
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
 import type { PackExportOptions, PackPreview } from '../shared/types'
 
 export const PACK_FORMAT = 'sorta-pack'
-export const PACK_VERSION = 1
+export const PACK_VERSION = 2
 export const EMBED_MODEL = 'ccip-caformer-24-randaug-pruned'
 export const PACK_ACTION = 'pack.import'
 
@@ -44,6 +50,35 @@ interface PackSeries {
   affiliations: PackAffiliation[]
   characters: PackCharacter[]
 }
+// One picture under the organize folder and how it is classified. Character
+// references are pack character keys ("c12"); `gs` indexes `series`.
+export interface PackFile {
+  p: string // path relative to the organize folder, "/" separated
+  sha: string
+  size: number | null
+  rating: string
+  rs: string // rating source: auto | user
+  score: number | null // rating score
+  rr: number // borderline rating → 등급 확인
+  kind: string // character | other | unknown
+  fav: number
+  stars: number
+  go: number // 단체 사진으로만 분류
+  gs: number | null // its game (index into series)
+  aside: number // 중복으로 따로 둠
+  classified: boolean // went through the tagger
+  tags: unknown // stored tagger scores (tag_json) — threshold changes re-decide from them
+  chars: { c: string | null; st: string; src: string; conf: number | null; bbox: string | null; cand: { c: string; score: number }[] | null }[]
+  groups: string[] // picture group names
+  // 학습 데이터 of a picture the user confirmed: its feature vectors (CCIP,
+  // float16 base64) and which of them are a character's reference.
+  emb?: { crop: string; bbox: string | null; v: string }[]
+  refs?: { c: string; e: number }[]
+}
+export interface PackGroup {
+  name: string
+  order: number
+}
 export interface Pack {
   format: typeof PACK_FORMAT
   version: number
@@ -52,6 +87,8 @@ export interface Pack {
   embedModel: string
   dim: number
   series: PackSeries[]
+  groups?: PackGroup[]
+  files?: PackFile[]
 }
 
 // ---- float16 ----
@@ -99,14 +136,22 @@ function vectorId(s: string): number {
 // ---- export ----
 
 export function exportPack(db: Db, appVersion: string, o: PackExportOptions): Buffer {
+  return gzipSync(Buffer.from(JSON.stringify(buildPack(db, appVersion, o))))
+}
+
+export function buildPack(db: Db, appVersion: string, o: PackExportOptions): Pack {
+  // Pictures reference any character → every game goes in with them.
+  const only = o.filesRoot ? undefined : o.seriesIds
+  // With pictures, my own references travel with their picture (`files`).
+  const userRefs = o.includeUserRefs && !o.filesRoot
   const series = db
-    .prepare(`SELECT id, name, aliases, danbooru_copyright_tag AS tag, wiki FROM series ${o.seriesIds ? `WHERE id IN (${o.seriesIds.map(() => '?').join(',') || 'NULL'})` : ''} ORDER BY name`)
-    .all(...(o.seriesIds ?? [])) as { id: number; name: string; aliases: string; tag: string | null; wiki: string | null }[]
+    .prepare(`SELECT id, name, aliases, danbooru_copyright_tag AS tag, wiki FROM series ${only ? `WHERE id IN (${only.map(() => '?').join(',') || 'NULL'})` : ''} ORDER BY name`)
+    .all(...(only ?? [])) as { id: number; name: string; aliases: string; tag: string | null; wiki: string | null }[]
   const out: Pack = { format: PACK_FORMAT, version: PACK_VERSION, app: appVersion, createdAt: Date.now(), embedModel: EMBED_MODEL, dim: 768, series: [] }
   const affQ = db.prepare('SELECT id, name, aliases, parent_id, sort_order FROM affiliations WHERE series_id = ? ORDER BY sort_order, id')
   const charQ = db.prepare('SELECT id, name, aliases, danbooru_tag, parent_id, affiliation_id FROM characters WHERE series_id = ? ORDER BY id')
   const learnedQ = db.prepare('SELECT tag, learned_at FROM learned WHERE character_id = ?')
-  const refsQ = db.prepare(`SELECT source, post_id, vector FROM refs WHERE character_id = ? ${o.includeUserRefs ? '' : "AND source = 'booru'"}`)
+  const refsQ = db.prepare(`SELECT source, post_id, vector FROM refs WHERE character_id = ? ${userRefs ? '' : "AND source = 'booru'"}`)
   for (const s of series) {
     const affs = affQ.all(s.id) as { id: number; name: string; aliases: string; parent_id: number | null; sort_order: number }[]
     const chars = charQ.all(s.id) as {
@@ -154,10 +199,110 @@ export function exportPack(db: Db, appVersion: string, o: PackExportOptions): Bu
     }
     out.series.push(ps)
   }
-  return gzipSync(Buffer.from(JSON.stringify(out)))
+  if (o.filesRoot) {
+    out.groups = (db.prepare('SELECT name, sort_order FROM fav_groups ORDER BY sort_order, id').all() as { name: string; sort_order: number }[]).map(
+      (g) => ({ name: g.name, order: g.sort_order })
+    )
+    out.files = packFiles(db, o.filesRoot, series.map((s) => s.id), o.includeLearned && o.includeUserRefs)
+  }
+  return out
+}
+
+// Pictures under `root` with their classification (see PackFile).
+function packFiles(db: Db, root: string, seriesIds: number[], learned: boolean): PackFile[] {
+  const base = resolve(root)
+  const gIndex = new Map(seriesIds.map((id, i) => [id, i]))
+  const charKey = (id: number | null): string | null => (id === null ? null : `c${id}`)
+  const imgs = db
+    .prepare(
+      `SELECT id, path, sha256, file_size, rating, rating_source, rating_score, rating_review, kind, favorite, stars,
+              group_only, group_series_id, set_aside, classified_at, tag_json, embedded_at
+       FROM images ORDER BY id`
+    )
+    .all() as {
+    id: number
+    path: string
+    sha256: string
+    file_size: number | null
+    rating: string
+    rating_source: string
+    rating_score: number | null
+    rating_review: number
+    kind: string
+    favorite: number
+    stars: number
+    group_only: number
+    group_series_id: number | null
+    set_aside: number
+    classified_at: number | null
+    tag_json: string | null
+    embedded_at: number | null
+  }[]
+  const charsQ = db.prepare('SELECT character_id, status, source, confidence, bbox, candidates FROM image_characters WHERE image_id = ? ORDER BY id')
+  const groupsQ = db.prepare('SELECT g.name FROM image_groups ig JOIN fav_groups g ON g.id = ig.group_id WHERE ig.image_id = ?')
+  const embQ = db.prepare('SELECT crop, bbox, vector FROM embeddings WHERE image_id = ? ORDER BY id')
+  const refQ = db.prepare("SELECT character_id, vector FROM refs WHERE source = 'user' AND image_id = ?")
+  const out: PackFile[] = []
+  for (const i of imgs) {
+    const abs = resolve(i.path)
+    if (!abs.startsWith(base + sep)) continue
+    const chars = charsQ.all(i.id) as {
+      character_id: number | null
+      status: string
+      source: string
+      confidence: number | null
+      bbox: string | null
+      candidates: string | null
+    }[]
+    const f: PackFile = {
+      p: relative(base, abs).split(sep).join('/'),
+      sha: i.sha256,
+      size: i.file_size,
+      rating: i.rating,
+      rs: i.rating_source,
+      score: i.rating_score,
+      rr: i.rating_review,
+      kind: i.kind,
+      fav: i.favorite,
+      stars: i.stars,
+      go: i.group_only,
+      gs: i.group_series_id === null ? null : (gIndex.get(i.group_series_id) ?? null),
+      aside: i.set_aside,
+      classified: i.classified_at !== null,
+      tags: i.tag_json ? JSON.parse(i.tag_json) : null,
+      chars: chars.map((c) => ({
+        c: charKey(c.character_id),
+        st: c.status,
+        src: c.source,
+        conf: c.confidence,
+        bbox: c.bbox,
+        cand: c.candidates
+          ? (JSON.parse(c.candidates) as { characterId: number; score: number }[]).map((x) => ({ c: charKey(x.characterId)!, score: x.score }))
+          : null
+      })),
+      groups: (groupsQ.all(i.id) as { name: string }[]).map((g) => g.name)
+    }
+    // A picture's vectors only matter where the user confirmed it (they become
+    // that character's references); the rest are worked out again.
+    if (learned && i.embedded_at !== null && chars.some((c) => c.source === 'user')) {
+      const emb = embQ.all(i.id) as { crop: string; bbox: string | null; vector: Buffer }[]
+      if (emb.length) {
+        f.emb = emb.map((e) => ({ crop: e.crop, bbox: e.bbox, v: encodeVector(e.vector) }))
+        f.refs = (refQ.all(i.id) as { character_id: number; vector: Buffer }[])
+          .map((r) => ({ c: `c${r.character_id}`, e: emb.findIndex((e) => e.vector.equals(r.vector)) }))
+          .filter((r) => r.e >= 0)
+      }
+    }
+    out.push(f)
+  }
+  return out
 }
 
 export function readPack(buf: Buffer): Pack {
+  return parsePack(buf)
+}
+
+function parsePack(buf: Buffer): Pack {
   let p: Pack
   try {
     p = JSON.parse(gunzipSync(buf).toString('utf8')) as Pack
@@ -178,7 +323,7 @@ interface Plan {
   run: () => void
 }
 
-interface ImportPayload {
+export interface ImportPayload {
   label: string
   created: { series: number[]; affiliations: number[]; characters: number[] }
   refs: number[] // inserted ref ids
@@ -191,8 +336,11 @@ interface ImportPayload {
 }
 
 export function registerPackUndo(log: ActionLog, db: Db): void {
-  log.register<ImportPayload>(PACK_ACTION, (p) =>
-    db.transaction(() => {
+  log.register<ImportPayload>(PACK_ACTION, (p) => undoPackImport(db, p))
+}
+
+export function undoPackImport(db: Db, p: ImportPayload): void {
+  db.transaction(() => {
       db.pragma('defer_foreign_keys = ON')
       const del = (table: string, ids: number[]): void => {
         if (ids.length) db.prepare(`DELETE FROM ${table} WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids)
@@ -212,8 +360,7 @@ export function registerPackUndo(log: ActionLog, db: Db): void {
       del('characters', p.created.characters)
       del('affiliations', p.created.affiliations)
       del('series', p.created.series)
-    })()
-  )
+  })()
 }
 
 function put(db: Db, table: string, row: Record<string, unknown>): void {
@@ -222,7 +369,18 @@ function put(db: Db, table: string, row: Record<string, unknown>): void {
 }
 
 // Work out what an import would do; `run()` does it (inside one transaction).
-export function planImport(db: Db, pack: Pack, o: { overwrite: boolean; learned: boolean }): Plan & { payload: () => ImportPayload } {
+// After run(): pack character key → my character id, and each pack game's id.
+export interface ImportKeys {
+  chars: Map<string, number>
+  series: number[]
+}
+
+export function planImport(
+  db: Db,
+  pack: Pack,
+  o: { overwrite: boolean; learned: boolean }
+): Plan & { payload: () => ImportPayload; keys: () => ImportKeys } {
+  const keys: ImportKeys = { chars: new Map(), series: [] }
   const pv: PackPreview = {
     games: pack.series.length,
     newGames: 0,
@@ -234,7 +392,8 @@ export function planImport(db: Db, pack: Pack, o: { overwrite: boolean; learned:
     conflicts: [],
     modelMismatch: pack.embedModel !== EMBED_MODEL,
     app: pack.app,
-    createdAt: pack.createdAt
+    createdAt: pack.createdAt,
+    files: pack.files?.length ?? 0
   }
   const useLearned = o.learned && !pv.modelMismatch
   // Dry matching for the preview.
@@ -328,6 +487,7 @@ export function planImport(db: Db, pack: Pack, o: { overwrite: boolean; learned:
           )
           payload.created.series.push(sid)
         } else {
+          keys.series.push(sid)
           const cur = db.prepare('SELECT wiki, danbooru_copyright_tag AS tag FROM series WHERE id = ?').get(sid) as { wiki: string | null; tag: string | null }
           if ((!cur.wiki && s.wiki) || (!cur.tag && s.tag)) {
             snap('series', sid)
@@ -389,6 +549,7 @@ export function planImport(db: Db, pack: Pack, o: { overwrite: boolean; learned:
             }
           }
           charId.set(c.key, id)
+          keys.chars.set(c.key, id)
           // learned references
           if (useLearned && c.learned?.refs.length) {
             const before = db.prepare('SELECT * FROM learned WHERE character_id = ?').get(id) as Record<string, unknown> | undefined
@@ -411,7 +572,7 @@ export function planImport(db: Db, pack: Pack, o: { overwrite: boolean; learned:
       }
     })()
   }
-  return { preview: pv, run, payload: () => payload }
+  return { preview: pv, run, payload: () => payload, keys: () => keys }
 }
 
 // Would putting `node` under `parent` create a loop?

@@ -66,8 +66,8 @@ export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
   if (!settings) return <div className="page" />
   return (
     <div ref={pageRef} className="page learn">
-      <div className="page-head">
-        <h1>캐릭터</h1>
+      <div className="page-head stack">
+        <h1>관리</h1>
         {tabs}
       </div>
       <p className="hint">

@@ -1,7 +1,7 @@
 // Sorta engine entry. Pure Node (no Electron imports) so the standalone app,
 // Halftone and the tests all drive the same code.
-import { mkdirSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, promises as fsp, renameSync, writeFileSync } from 'fs'
+import { dirname, join } from 'path'
 import type {
   CharacterHit,
   ClusterResult,
@@ -43,7 +43,9 @@ import { fillFileStats, libraryTree, listImages } from './library'
 import * as collect from './collect'
 import * as dupes from './dupes'
 import * as pack from './pack'
-import { promises as fsp } from 'fs'
+import * as libfile from './libfile'
+import type { RestoreResult } from './libfile'
+import { gzipSync } from 'zlib'
 import type { GrayLoader } from './dupes'
 import * as review from './review'
 import * as organize from './organize'
@@ -132,6 +134,7 @@ export class SortaCore {
     collect.registerCollectUndo(this.log, this.db)
     dupes.registerDupUndo(this.log, this.db)
     pack.registerPackUndo(this.log, this.db)
+    libfile.registerRestoreUndo(this.log, this.db)
     this.checkPipelineRev()
   }
 
@@ -613,6 +616,80 @@ export class SortaCore {
   }
   async importPack(file: string, o: { overwrite: boolean; learned: boolean }): Promise<PackPreview> {
     return pack.importPack(this.db, this.log, pack.readPack(await fsp.readFile(file)), o)
+  }
+
+  // ---- 분류 정보 파일 (<정리 폴더>/.sorta/library.sortapack, libfile.ts) ----
+
+  // A file with pictures → register them (relative to my organize folder) as
+  // they were classified there. One undo step.
+  runRestore(file: string, o: { learned: boolean; overwrite?: boolean }, label = '분류 정보 불러오기'): { id: number; done: Promise<RestoreResult> } {
+    return this.queue.add(label, async (ctx) => {
+      const root = this.settings().organizeDir
+      if (!root) throw new Error('설정에서 정리 폴더를 먼저 정하세요 (그림은 정리 폴더 기준으로 찾습니다)')
+      const p = pack.readPack(await fsp.readFile(file))
+      const r = await libfile.restoreFiles(this.db, this.log, p, root, this.paths.thumbsDir, { ...o, label }, ctx)
+      if (file === libfile.libFilePath(root)) this.stampLibFile(root, p.createdAt)
+      return r
+    })
+  }
+
+  // The organize folder's file, when it was written somewhere else (another
+  // PC, a reinstall) after this library last wrote or read it.
+  async pendingLibFile(): Promise<string | null> {
+    const root = this.settings().organizeDir
+    if (!root) return null
+    const file = libfile.libFilePath(root)
+    if (!existsSync(file)) return null
+    try {
+      const p = pack.readPack(await fsp.readFile(file))
+      if (!p.files?.length) return null
+      return p.createdAt > (this.settings().libraryFileStamps[root] ?? 0) ? file : null
+    } catch {
+      return null // unreadable / from a newer Sorta: leave it alone
+    }
+  }
+
+  private stampLibFile(root: string, at: number): void {
+    this.saveSettings({ libraryFileStamps: { ...this.settings().libraryFileStamps, [root]: at } })
+    this.libMark = this.changeMark()
+  }
+
+  // Rows changed by this connection so far — the library file is rewritten
+  // only when this moved since the last write.
+  changeMark(): number {
+    return (this.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n
+  }
+  private libMark = -1
+  libFileDirty(): boolean {
+    const s = this.settings()
+    return !!s.organizeDir && s.libraryFile && this.changeMark() !== this.libMark
+  }
+
+  private libPack(appVersion: string): pack.Pack {
+    const s = this.settings()
+    return pack.buildPack(this.db, appVersion, { includeLearned: s.libraryFileLearned, includeUserRefs: s.libraryFileLearned, filesRoot: s.organizeDir })
+  }
+
+  async writeLibFile(appVersion: string): Promise<boolean> {
+    const s = this.settings()
+    if (!s.organizeDir || !s.libraryFile || !existsSync(s.organizeDir)) return false
+    const p = this.libPack(appVersion)
+    await libfile.writeLibFile(s.organizeDir, gzipSync(Buffer.from(JSON.stringify(p))))
+    this.stampLibFile(s.organizeDir, p.createdAt)
+    return true
+  }
+
+  // On quit (no await possible).
+  writeLibFileSync(appVersion: string): void {
+    if (!this.libFileDirty()) return
+    const s = this.settings()
+    if (!existsSync(s.organizeDir)) return
+    const p = this.libPack(appVersion)
+    const file = libfile.libFilePath(s.organizeDir)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file + '.tmp', gzipSync(Buffer.from(JSON.stringify(p))))
+    renameSync(file + '.tmp', file)
+    this.stampLibFile(s.organizeDir, p.createdAt)
   }
 
   // ---- 중복 정리 ----

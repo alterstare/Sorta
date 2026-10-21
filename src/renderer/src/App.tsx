@@ -20,7 +20,7 @@ const NAV: [View, string, typeof PhotoLibraryIcon][] = [
   ['library', '라이브러리', PhotoLibraryIcon],
   ['review', '검토', FactCheckIcon],
   ['unknown', '미확인', HelpIcon],
-  ['characters', '캐릭터', PersonIcon]
+  ['characters', '관리', PersonIcon]
 ]
 
 // 캐릭터: 관리 / 학습 tabs (shown next to the page title).
@@ -31,7 +31,7 @@ function CharactersView(): JSX.Element {
     <div className="flat-group">
       {(
         [
-          ['manage', '관리'],
+          ['manage', '캐릭터'],
           ['org', '소속'],
           ['learn', '학습']
         ] as const
@@ -80,7 +80,7 @@ export default function App(): JSX.Element | null {
 }
 
 function Main(): JSX.Element {
-  const { view, setView, settings, load, onProgress, refreshLibrary, refreshModels, toast, dismissToast } = useStore()
+  const { view, setView, load, onProgress, refreshLibrary, refreshModels, toast, dismissToast } = useStore()
 
   useEffect(() => {
     void load()
@@ -143,12 +143,14 @@ function Main(): JSX.Element {
   useEffect(() => onHostSettings(() => setView('settings')), [setView])
   useEffect(() => postView(view), [view])
 
-  // Theme: Sorta's own setting, or — inside Halftone — the host's theme.
+  // Theme: Sorta's own setting (previewed while 설정 has it unsaved), or —
+  // inside Halftone — the host's theme.
+  const theme = useStore((s) => (s.settingsDraft ?? s.settings)?.theme)
   useEffect(() => {
     if (embedded) return followHostTheme((t) => (document.documentElement.dataset.theme = t))
-    if (settings) document.documentElement.dataset.theme = settings.theme
+    if (theme) document.documentElement.dataset.theme = theme
     return undefined
-  }, [settings?.theme])
+  }, [theme])
 
   return (
     <div className="app">

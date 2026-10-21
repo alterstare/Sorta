@@ -16,6 +16,7 @@ function Check({ on, onClick, children, disabled }: { on: boolean; onClick: () =
 
 export function ExportDialog({ list, onClose }: { list: ManagedCharacter[]; onClose: () => void }): JSX.Element {
   const showToast = useStore((s) => s.showToast)
+  const organizeDir = useStore((s) => s.settings?.organizeDir ?? '')
   const games = useMemo(() => {
     const m = new Map<number, { id: number; name: string; n: number; learned: number }>()
     for (const c of list) {
@@ -29,13 +30,20 @@ export function ExportDialog({ list, onClose }: { list: ManagedCharacter[]; onCl
   const [off, setOff] = useState<number[]>([])
   const [learned, setLearned] = useState(true)
   const [userRefs, setUserRefs] = useState(false)
+  // 그림별 분류 결과 (pictures under the organize folder) — then every game goes in.
+  const [files, setFiles] = useState(false)
   const [busy, setBusy] = useState(false)
-  const chosen = games.filter((g) => !off.includes(g.id))
+  const chosen = files ? games : games.filter((g) => !off.includes(g.id))
 
   const go = async (): Promise<void> => {
     setBusy(true)
     try {
-      const r = await window.api.exportPack({ seriesIds: chosen.map((g) => g.id), includeLearned: learned, includeUserRefs: learned && userRefs })
+      const r = await window.api.exportPack({
+        seriesIds: chosen.map((g) => g.id),
+        includeLearned: learned,
+        includeUserRefs: learned && userRefs,
+        filesRoot: files ? organizeDir : undefined
+      })
       if (r) {
         showToast(r)
         if (r.ok) onClose()
@@ -56,20 +64,33 @@ export function ExportDialog({ list, onClose }: { list: ManagedCharacter[]; onCl
         <div className="row-desc">
           고른 게임의 소속 조직도, 캐릭터(이름 · 별칭 · 태그 · 복장 버전), 학습 데이터를 .sortapack 파일 하나로 저장합니다. 그림 파일은 들어가지 않습니다.
         </div>
+        <Check on={files} disabled={!organizeDir} onClick={() => setFiles(!files)}>
+          그림별 분류 결과 포함 (정리 폴더의 그림)
+        </Check>
+        <div className="dim">
+          {organizeDir
+            ? '정리 폴더 안 그림마다 캐릭터 · 등급 · 즐겨찾기 · 별점 · 그룹을 함께 저장합니다. 다른 PC에서 같은 그림이 든 정리 폴더를 정하고 불러오면 분류된 상태로 보입니다. 이때는 모든 게임이 들어갑니다.'
+            : '설정에서 정리 폴더를 정하면 그림별 분류 결과도 넣을 수 있습니다.'}
+        </div>
         <div className="pack-sec">
           <div className="row-title">게임</div>
           <div className="flat-group">
-            <button className="mini" onClick={() => setOff([])}>
+            <button className="mini" disabled={files} onClick={() => setOff([])}>
               전체 선택
             </button>
-            <button className="mini" onClick={() => setOff(games.map((g) => g.id))}>
+            <button className="mini" disabled={files} onClick={() => setOff(games.map((g) => g.id))}>
               전체 선택 해제
             </button>
           </div>
         </div>
         <div className="modal-list pack-games">
           {games.map((g) => (
-            <Check key={g.id} on={!off.includes(g.id)} onClick={() => setOff((x) => (x.includes(g.id) ? x.filter((i) => i !== g.id) : [...x, g.id]))}>
+            <Check
+              key={g.id}
+              on={files || !off.includes(g.id)}
+              disabled={files}
+              onClick={() => setOff((x) => (x.includes(g.id) ? x.filter((i) => i !== g.id) : [...x, g.id]))}
+            >
               <span className="pack-game">{g.name}</span>
               <span className="dim">
                 캐릭터 {g.n}명{g.learned ? ` · 학습 ${g.learned}명` : ''}
@@ -106,8 +127,10 @@ export function ExportDialog({ list, onClose }: { list: ManagedCharacter[]; onCl
 
 export function ImportDialog({ file, onClose }: { file: string; onClose: () => void }): JSX.Element {
   const showToast = useStore((s) => s.showToast)
+  const organizeDir = useStore((s) => s.settings?.organizeDir ?? '')
   const [overwrite, setOverwrite] = useState(false)
   const [learned, setLearned] = useState(true)
+  const [files, setFiles] = useState(true)
   const [pv, setPv] = useState<PackPreview | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -120,7 +143,8 @@ export function ImportDialog({ file, onClose }: { file: string; onClose: () => v
   const go = async (): Promise<void> => {
     setBusy(true)
     try {
-      const r = await window.api.importPack(file, { overwrite, learned })
+      const withFiles = files && !!pv?.files && !!organizeDir
+      const r = await (withFiles ? window.api.restorePack : window.api.importPack)(file, { overwrite, learned })
       showToast(r)
       if (r.ok) onClose()
     } finally {
@@ -165,6 +189,18 @@ export function ImportDialog({ file, onClose }: { file: string; onClose: () => v
             <Check on={learned && !pv.modelMismatch} disabled={pv.modelMismatch} onClick={() => setLearned(!learned)}>
               학습 데이터 가져오기
             </Check>
+            {pv.files > 0 && (
+              <>
+                <Check on={files && !!organizeDir} disabled={!organizeDir} onClick={() => setFiles(!files)}>
+                  그림별 분류 결과 적용 ({pv.files.toLocaleString()}장)
+                </Check>
+                <div className="dim">
+                  {organizeDir
+                    ? '정리 폴더에서 같은 경로의 그림을 찾아 분류된 상태로 넣습니다. 이미 있는 그림은 내 분류를 유지합니다.'
+                    : '설정에서 정리 폴더를 정해야 그림별 분류 결과를 적용할 수 있습니다.'}
+                </div>
+              </>
+            )}
             <div className="pack-sec">
               <div className="row-title">겹치는 소속 배치</div>
               <div className="flat-group">

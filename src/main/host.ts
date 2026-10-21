@@ -5,13 +5,14 @@
 // apps, so it is locked while one of them uses it.
 import { BrowserWindow, clipboard, dialog, ipcMain, nativeImage, net, protocol, shell } from 'electron'
 import type { CustomScheme, OpenDialogOptions, SaveDialogOptions } from 'electron'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, watch, writeFileSync, type FSWatcher } from 'fs'
+import { existsSync, mkdirSync, promises as fsp, readFileSync, unlinkSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { SortaCore, CancelledError } from '../core'
 import { NewerDataError } from '../core/db'
 import { isInside } from '../core/pipeline/scan'
 import { IPC } from '../shared/ipc'
+import { connectSmb } from '../core/smb'
 import type { JobSummary, SortaStatus } from '../shared/ipc'
 import type { LibraryFilter, ModelId, PackExportOptions, Rating, RatingPick, ReviewKind, Settings } from '../shared/types'
 
@@ -58,6 +59,21 @@ function allowedRoots(): string[] {
   return [...s.sourceDirs, s.organizeDir, core.paths.thumbsDir].filter(Boolean)
 }
 
+const UNC_TYPES: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  jxl: 'image/jxl',
+  heic: 'image/heic',
+  heif: 'image/heif'
+}
+
 function handleImages(): void {
   protocol.handle('sorta-img', async (req) => {
     if (!status.ready) return new Response('not ready', { status: 503 })
@@ -66,6 +82,15 @@ function handleImages(): void {
       const path = Buffer.from(seg, 'base64url').toString('utf-8')
       const known = allowedRoots().some((r) => isInside(path, r)) || !!core.db.prepare('SELECT 1 FROM images WHERE path = ? OR thumbnail_path = ?').get(path, path)
       if (!known) return new Response('forbidden', { status: 403 })
+      // NAS (SMB) UNC paths become file://host/... URLs that net.fetch refuses —
+      // read those directly.
+      if (/^[\\/]{2}[^\\/]/.test(path)) {
+        const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+        return new Response(new Uint8Array(await fsp.readFile(path)), {
+          status: 200,
+          headers: { 'Content-Type': UNC_TYPES[ext] ?? 'application/octet-stream', 'Cache-Control': 'public, max-age=604800' }
+        })
+      }
       const res = await net.fetch(pathToFileURL(path).toString())
       const headers = new Headers(res.headers)
       headers.set('Cache-Control', 'public, max-age=604800')
@@ -104,6 +129,46 @@ async function redecideJob(): Promise<void> {
   const r = await summarize(core.runRedecide().done, () => '')
   if (!r.ok) send(IPC.toast, { ok: false, message: `기준 다시 적용 실패: ${r.message}` })
   void reorganizeJob()
+}
+
+// 분류 정보 파일: the organize folder's file written somewhere else (another
+// PC, a reinstall) → its pictures come in already classified.
+async function libFileCheck(): Promise<void> {
+  const file = await core.pendingLibFile()
+  if (!file) return
+  const r = await summarize(core.runRestore(file, { learned: core.settings().libraryFileLearned }, '분류 정보 파일 불러오기').done, (x) =>
+    restoredMessage(x)
+  )
+  if (r.message) send(IPC.toast, r)
+  learnRefreshSoon(500)
+}
+
+function restoredMessage(x: { added: number; relinked: number; missing: number; changed: number }): string {
+  const parts = [`${x.added}장 불러옴`]
+  if (x.relinked) parts.push(`위치 갱신 ${x.relinked}장`)
+  if (x.missing) parts.push(`폴더에 없음 ${x.missing}장`)
+  if (x.changed) parts.push(`파일이 바뀌어 건너뜀 ${x.changed}장`)
+  return `분류 정보 파일 · ${parts.join(' · ')} · Ctrl+Z로 되돌리기`
+}
+
+// Rewrite the file once changes have settled (no change between two ticks).
+let libTimer: NodeJS.Timeout | null = null
+let libSeen = -1
+let libWriting = false
+function libTick(): void {
+  if (!status.ready || libWriting || !core.libFileDirty()) return
+  const mark = core.changeMark()
+  if (mark !== libSeen) {
+    libSeen = mark
+    return
+  }
+  libWriting = true
+  core
+    .writeLibFile(opts.appVersion)
+    .catch(() => {
+      /* folder gone / busy — tried again on the next change */
+    })
+    .finally(() => (libWriting = false))
 }
 
 // Organized images follow classification changes (moved to their new folder).
@@ -261,11 +326,13 @@ function registerIpc(): void {
     // Assist turned on → ask it about the images the main tagger left open.
     if (patch.assistMode && patch.assistMode !== 'none') void assistJob()
     if ('watch' in patch || patch.sourceDirs || 'organizeDir' in patch) restartWatch()
+    if (patch.organizeDir) void libFileCheck() // a folder another Sorta organized
     opts.onSettingsSaved?.(patch, s)
     if (('splitByRating' in patch || 'moveAuto' in patch) && !patch.thresholds) void reorganizeJob()
     return s
   })
   ipcMain.handle(IPC.cancelJob, (_e, id: number) => core.queue.cancel(id))
+  ipcMain.handle(IPC.smbConnect, (_e, o: { address: string; user?: string; password?: string }) => connectSmb(o))
   ipcMain.handle(IPC.pickFolder, async () => {
     const r = await dlgOpen({ properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]
@@ -335,6 +402,21 @@ function registerIpc(): void {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle(IPC.previewPack, (_e, f: string, o: { overwrite: boolean; learned: boolean }) => core.previewPack(f, o))
+  // A file with pictures: games / characters and every picture's 분류 결과.
+  ipcMain.handle(IPC.restorePack, async (_e, f: string, o: { overwrite: boolean; learned: boolean }) => {
+    const r = await summarize(core.runRestore(f, o).done, (x) => restoredMessage(x).replace('분류 정보 파일', '불러오기 완료'))
+    learnRefreshSoon(500)
+    return r
+  })
+  ipcMain.handle(IPC.writeLibraryFile, async () => {
+    try {
+      return (await core.writeLibFile(opts.appVersion))
+        ? { ok: true, message: '분류 정보 파일을 저장했습니다' }
+        : { ok: false, message: '정리 폴더가 없거나 분류 정보 파일 저장이 꺼져 있습니다' }
+    } catch (e) {
+      return { ok: false, message: String((e as Error).message ?? e) }
+    }
+  })
   ipcMain.handle(IPC.importPack, async (_e, f: string, o: { overwrite: boolean; learned: boolean }) => {
     try {
       const p = await core.importPack(f, o)
@@ -521,6 +603,8 @@ export function startSorta(): void {
   if (!status.ready || started) return
   started = true
   restartWatch()
+  void libFileCheck()
+  libTimer = setInterval(libTick, 15_000)
   // Results were reset for a pipeline fix → re-classify in the background
   // (progress shows in the status bar; cancellable).
   void summarize(core.runFileStats().done, () => '') // images imported before sizes were kept
@@ -538,7 +622,13 @@ export function startSorta(): void {
 
 export function closeSorta(): void {
   for (const w of watchers) w.close()
+  if (libTimer) clearInterval(libTimer)
   if (!status.ready) return
+  try {
+    core.writeLibFileSync(opts.appVersion) // changes since the last write
+  } catch {
+    /* folder gone — the next start writes it */
+  }
   core.close()
   releaseLock()
 }

@@ -1,13 +1,14 @@
 // 설정: source folders + import, model download, display, thresholds, data.
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { JSX } from 'react'
 import { blocking, useStore } from '../store'
-import { useKept, useKeptScroll } from '../keep'
+import { useKeptScroll } from '../keep'
 import { embedded } from '../embed'
 import type { AssistMode, ModelId, Thresholds } from '../../../shared/types'
-import { AddIcon, CheckIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, PlayIcon, RestartIcon, UndoIcon } from './icons'
+import { AddIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, LanIcon, PlayIcon, RestartIcon, SaveAltIcon } from './icons'
 import Stepper from './Stepper'
 import OrganizeCard from './OrganizeCard'
+import NasDialog from './NasDialog'
 import { DEFAULT_THRESHOLDS, DEFAULT_IGNORED } from '../../../shared/defaults'
 
 // [key, label, description, step, min, max]
@@ -63,36 +64,39 @@ const mb = (n: number): string => `${Math.round(n / 1024 / 1024)}MB`
 
 export default function SettingsView(): JSX.Element {
   const pageRef = useKeptScroll<HTMLDivElement>('settings')
-  const { settings, info, saveSettings, models, refreshModels, showToast, jobs, tree, refreshLibrary, update } = useStore()
+  const { settings, info, models, refreshModels, showToast, jobs, tree, refreshLibrary, update } = useStore()
+  // Every setting edits a draft; 저장 applies it (store.commitSettings).
+  const draft = useStore((s) => s.settingsDraft)
+  const edit = useStore((s) => s.editSettings)
+  const commit = useStore((s) => s.commitSettings)
+  const discard = useStore((s) => s.discardSettings)
+  const pendingNav = useStore((s) => s.pendingNav)
+  const clearPendingNav = useStore((s) => s.clearPendingNav)
+  const setView = useStore((s) => s.setView)
+  const prevView = useStore((s) => s.prevView)
   const [busy, setBusy] = useState<'import' | 'classify' | 'model' | null>(null)
   const [newTag, setNewTag] = useState('')
-  // 분류 기준: edits stay a draft until the settings screen is left (or 지금 적용).
-  const [draft, setDraft] = useKept<Thresholds | null>('settings.thresholdsDraft', null)
-  useEffect(
-    () => () => {
-      const st = useStore.getState()
-      const d = st.kept['settings.thresholdsDraft'] as Thresholds | null | undefined
-      if (!d || !st.settings) return
-      useStore.setState((x) => ({
-        kept: { ...x.kept, 'settings.thresholdsDraft': null }
-      }))
-      if (JSON.stringify(d) !== JSON.stringify(st.settings.thresholds)) {
-        void st.saveSettings({ thresholds: d }).then(() => st.showToast({ ok: true, message: '바뀐 분류 기준을 적용합니다' }))
-      }
-    },
-    []
-  )
+  // NAS (SMB) dialog: which folder it adds to
+  const [nas, setNas] = useState<'source' | 'organize' | null>(null)
   if (!settings) return <div className="page" />
+  const cur = draft ?? settings
   const tagger = models.find((m) => m.id === 'wd')
-  const th = draft ?? settings.thresholds
-  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(settings.thresholds)
-  const editTh = (patch: Partial<Thresholds>): void => setDraft({ ...th, ...patch })
-  const applyNow = (): void => {
-    if (!draft) return
-    void saveSettings({ thresholds: draft })
-    setDraft(null)
-  }
+  const th = cur.thresholds
+  const editTh = (patch: Partial<Thresholds>): void => edit({ thresholds: { ...th, ...patch } })
   const running = blocking(jobs)
+  // Leave-confirm (a view change was attempted with unsaved edits).
+  const leaveSave = async (): Promise<void> => {
+    const to = pendingNav
+    clearPendingNav()
+    await commit()
+    if (to) setView(to)
+  }
+  const leaveDiscard = (): void => {
+    const to = pendingNav
+    clearPendingNav()
+    discard()
+    if (to) setView(to)
+  }
 
   const run = async (kind: 'import' | 'classify' | 'model', fn: () => Promise<{ ok: boolean; message: string }>): Promise<void> => {
     setBusy(kind)
@@ -106,11 +110,11 @@ export default function SettingsView(): JSX.Element {
   }
   const addSource = async (): Promise<void> => {
     const dir = await window.api.pickFolder()
-    if (dir && !settings.sourceDirs.includes(dir)) await saveSettings({ sourceDirs: [...settings.sourceDirs, dir] })
+    if (dir && !cur.sourceDirs.includes(dir)) edit({ sourceDirs: [...cur.sourceDirs, dir] })
   }
   const pickOrganize = async (): Promise<void> => {
     const dir = await window.api.pickFolder()
-    if (dir) await saveSettings({ organizeDir: dir })
+    if (dir) edit({ organizeDir: dir })
   }
 
   return (
@@ -129,10 +133,14 @@ export default function SettingsView(): JSX.Element {
               <AddIcon />
               추가
             </button>
+            <button className="mini" onClick={() => setNas('source')}>
+              <LanIcon />
+              NAS (SMB)
+            </button>
           </div>
         </div>
-        {settings.sourceDirs.length === 0 && <div className="row-desc pad">등록된 폴더가 없습니다.</div>}
-        {settings.sourceDirs.map((d) => (
+        {cur.sourceDirs.length === 0 && <div className="row-desc pad">등록된 폴더가 없습니다.</div>}
+        {cur.sourceDirs.map((d) => (
           <div className="path-row" key={d}>
             <span className="path selectable">{d}</span>
             <div className="flat-group">
@@ -141,10 +149,10 @@ export default function SettingsView(): JSX.Element {
                 열기
               </button>
               <button
-                className="mini"
+                className="mini danger"
                 onClick={() =>
-                  void saveSettings({
-                    sourceDirs: settings.sourceDirs.filter((x) => x !== d)
+                  edit({
+                    sourceDirs: cur.sourceDirs.filter((x) => x !== d)
                   })
                 }
               >
@@ -158,13 +166,64 @@ export default function SettingsView(): JSX.Element {
           <div className="row-text">
             <div className="row-title">정리 폴더</div>
             <div className="row-desc">분류가 끝난 원본을 게임 · 캐릭터 폴더로 옮겨 정리합니다. 가져오기 대상에서 제외됩니다.</div>
-            {settings.organizeDir && <div className="row-desc selectable">{settings.organizeDir}</div>}
+            {cur.organizeDir && <div className="row-desc selectable">{cur.organizeDir}</div>}
           </div>
           <div className="flat-group">
             <button className="mini" onClick={() => void pickOrganize()}>
               <FolderOpenIcon />
-              {settings.organizeDir ? '변경' : '선택'}
+              {cur.organizeDir ? '변경' : '선택'}
             </button>
+            <button className="mini" onClick={() => setNas('organize')}>
+              <LanIcon />
+              NAS (SMB)
+            </button>
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">분류 정보 파일</div>
+            <div className="row-desc">
+              정리 폴더 안 .sorta 폴더에 소속 조직도 · 캐릭터 · 그림별 분류 결과를 파일로 두고, 바뀔 때마다 갱신합니다. 다시 설치하거나 다른 PC에서 같은
+              정리 폴더를 정하면 그림이 분류된 상태로 바로 보입니다.
+            </div>
+          </div>
+          <div className="row-stack">
+            <button
+              className="mini flat"
+              disabled={!settings.organizeDir || !settings.libraryFile}
+              title="지금 바로 파일을 갱신합니다 (다른 PC로 옮기기 전 등)"
+              onClick={() => void window.api.writeLibraryFile().then(showToast)}
+            >
+              <SaveAltIcon />
+              지금 저장
+            </button>
+            <div className="flat-group">
+              {[false, true].map((v) => (
+                <button key={String(v)} className={`mini ${cur.libraryFile === v ? 'on' : ''}`} onClick={() => edit({ libraryFile: v })}>
+                  {v ? '켜기' : '끄기'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">분류 정보 파일에 학습 데이터 포함</div>
+            <div className="row-desc">
+              학습한 캐릭터의 참고 특징값과 직접 확정한 그림의 특징값도 함께 저장합니다. 그림 자체는 들어가지 않습니다. 넣으면 파일이 커집니다.
+            </div>
+          </div>
+          <div className="flat-group">
+            {[false, true].map((v) => (
+              <button
+                key={String(v)}
+                className={`mini ${cur.libraryFileLearned === v ? 'on' : ''}`}
+                disabled={!cur.libraryFile}
+                onClick={() => edit({ libraryFileLearned: v })}
+              >
+                {v ? '포함' : '제외'}
+              </button>
+            ))}
           </div>
         </div>
         <div className="row">
@@ -173,11 +232,11 @@ export default function SettingsView(): JSX.Element {
             <div className="row-desc">원본 폴더에 새 그림이 생기면 자동으로 가져와 분류합니다.</div>
           </div>
           <div className="flat-group">
-            {[true, false].map((v) => (
+            {[false, true].map((v) => (
               <button
                 key={String(v)}
-                className={`mini ${settings.watch === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ watch: v })}
+                className={`mini ${cur.watch === v ? 'on' : ''}`}
+                onClick={() => edit({ watch: v })}
               >
                 {v ? '켜기' : '끄기'}
               </button>
@@ -240,7 +299,7 @@ export default function SettingsView(): JSX.Element {
               </div>
               <div className="flat-group">
                 {m.installed ? (
-                  <button className="mini" disabled={running} onClick={() => void window.api.deleteModel(id).then(refreshModels)}>
+                  <button className="mini danger" disabled={running} onClick={() => void window.api.deleteModel(id).then(refreshModels)}>
                     <DeleteIcon />
                     삭제
                   </button>
@@ -262,7 +321,7 @@ export default function SettingsView(): JSX.Element {
           <div className="choice-cards" role="radiogroup">
             {ASSIST.map(([v, l, need, desc]) => {
               const missing = need.filter((id) => !models.find((x) => x.id === id)?.installed)
-              const on = settings.assistMode === v
+              const on = cur.assistMode === v
               return (
                 <button
                   key={v}
@@ -270,7 +329,7 @@ export default function SettingsView(): JSX.Element {
                   role="radio"
                   aria-checked={on}
                   disabled={missing.length > 0}
-                  onClick={() => void saveSettings({ assistMode: v })}
+                  onClick={() => edit({ assistMode: v })}
                 >
                   <span className="choice-radio">{on && <span className="menu-dot" />}</span>
                   <span className="choice-name">{l}</span>
@@ -289,11 +348,11 @@ export default function SettingsView(): JSX.Element {
             </div>
           </div>
           <div className="flat-group">
-            {[true, false].map((v) => (
+            {[false, true].map((v) => (
               <button
                 key={String(v)}
-                className={`mini ${settings.allowWebLookup === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ allowWebLookup: v })}
+                className={`mini ${cur.allowWebLookup === v ? 'on' : ''}`}
+                onClick={() => edit({ allowWebLookup: v })}
               >
                 {v ? '허용' : '차단'}
               </button>
@@ -309,11 +368,11 @@ export default function SettingsView(): JSX.Element {
             </div>
           </div>
           <div className="flat-group">
-            {[true, false].map((v) => (
+            {[false, true].map((v) => (
               <button
                 key={String(v)}
-                className={`mini ${settings.allowImageSearch === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ allowImageSearch: v })}
+                className={`mini ${cur.allowImageSearch === v ? 'on' : ''}`}
+                onClick={() => edit({ allowImageSearch: v })}
               >
                 {v ? '허용' : '차단'}
               </button>
@@ -332,8 +391,8 @@ export default function SettingsView(): JSX.Element {
             {(['danbooru', 'safebooru'] as const).map((v) => (
               <button
                 key={v}
-                className={`mini ${settings.booruSource === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ booruSource: v })}
+                className={`mini ${cur.booruSource === v ? 'on' : ''}`}
+                onClick={() => edit({ booruSource: v })}
               >
                 {v === 'danbooru' ? 'Danbooru' : 'Safebooru'}
               </button>
@@ -348,11 +407,11 @@ export default function SettingsView(): JSX.Element {
             </div>
           </div>
           <div className="flat-group">
-            {[true, false].map((v) => (
+            {[false, true].map((v) => (
               <button
                 key={String(v)}
-                className={`mini ${settings.learnSensitive === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ learnSensitive: v })}
+                className={`mini ${cur.learnSensitive === v ? 'on' : ''}`}
+                onClick={() => edit({ learnSensitive: v })}
               >
                 {v ? '사용' : '미사용'}
               </button>
@@ -365,11 +424,11 @@ export default function SettingsView(): JSX.Element {
             <div className="row-desc">캐릭터 하나를 학습할 때 받는 참고 그림 수입니다. 많을수록 정확하지만 오래 걸립니다.</div>
           </div>
           <Stepper
-            value={settings.learnPerCharacter}
+            value={cur.learnPerCharacter}
             min={5}
             max={100}
             step={5}
-            onChange={(v) => void saveSettings({ learnPerCharacter: v })}
+            onChange={(v) => edit({ learnPerCharacter: v })}
           />
         </div>
         <div className="row">
@@ -377,7 +436,7 @@ export default function SettingsView(): JSX.Element {
             <div className="row-title">최소 그림 수</div>
             <div className="row-desc">쓸 수 있는 그림이 이보다 적은 캐릭터는 학습하지 않고 "그림 부족"으로 둡니다.</div>
           </div>
-          <Stepper value={settings.learnMinPosts} min={1} max={200} step={5} onChange={(v) => void saveSettings({ learnMinPosts: v })} />
+          <Stepper value={cur.learnMinPosts} min={1} max={200} step={5} onChange={(v) => edit({ learnMinPosts: v })} />
         </div>
         <div className="row">
           <div className="row-text">
@@ -390,11 +449,11 @@ export default function SettingsView(): JSX.Element {
             </div>
           </div>
           <div className="flat-group">
-            {[true, false].map((v) => (
+            {[false, true].map((v) => (
               <button
                 key={String(v)}
-                className={`mini ${settings.useGpu === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ useGpu: v })}
+                className={`mini ${cur.useGpu === v ? 'on' : ''}`}
+                onClick={() => edit({ useGpu: v })}
               >
                 {v ? '켜기' : '끄기'}
               </button>
@@ -412,7 +471,7 @@ export default function SettingsView(): JSX.Element {
           </div>
           <div className="flat-group">
             {(['light', 'dark'] as const).map((t) => (
-              <button key={t} className={`mini ${settings.theme === t ? 'on' : ''}`} disabled={embedded} onClick={() => void saveSettings({ theme: t })}>
+              <button key={t} className={`mini ${cur.theme === t ? 'on' : ''}`} disabled={embedded} onClick={() => edit({ theme: t })}>
                 {t === 'light' ? '라이트' : '다크'}
               </button>
             ))}
@@ -427,11 +486,11 @@ export default function SettingsView(): JSX.Element {
             </div>
           </div>
           <div className="flat-group">
-            {[true, false].map((v) => (
+            {[false, true].map((v) => (
               <button
                 key={String(v)}
-                className={`mini ${settings.wheelNavigate === v ? 'on' : ''}`}
-                onClick={() => void saveSettings({ wheelNavigate: v })}
+                className={`mini ${cur.wheelNavigate === v ? 'on' : ''}`}
+                onClick={() => edit({ wheelNavigate: v })}
               >
                 {v ? '사용' : '미사용'}
               </button>
@@ -444,33 +503,17 @@ export default function SettingsView(): JSX.Element {
         <div className="card-head">
           <h2>분류 기준</h2>
           <div className="flat-group">
-            {dirty && (
-              <button className="mini" onClick={applyNow}>
-                <CheckIcon />
-                지금 적용
-              </button>
-            )}
-            {dirty && (
-              <button className="mini" onClick={() => setDraft(null)}>
-                <UndoIcon />
-                바꾼 값 취소
-              </button>
-            )}
             <button
               className="mini"
               disabled={THRESHOLDS.every(([k]) => th[k] === DEFAULT_THRESHOLDS[k])}
-              onClick={() => setDraft({ ...DEFAULT_THRESHOLDS })}
+              onClick={() => edit({ thresholds: { ...DEFAULT_THRESHOLDS } })}
             >
               <RestartIcon />
               전체 기본값
             </button>
           </div>
         </div>
-        <div className={`row-desc ${dirty ? 'th-dirty' : ''}`}>
-          {dirty
-            ? '바꾼 값은 설정 화면을 나가면 이미 분류한 이미지에도 다시 적용됩니다 (모델을 다시 돌리지 않습니다).'
-            : '값을 바꾸면 설정 화면을 나갈 때 이미 분류한 이미지에도 다시 적용됩니다 (모델을 다시 돌리지 않습니다).'}
-        </div>
+        <div className="row-desc">값을 바꾸고 저장하면 이미 분류한 이미지에도 다시 적용됩니다 (모델을 다시 돌리지 않습니다).</div>
         {THRESHOLDS.map(([k, label, desc, step, min, max]) => (
           <div className="row" key={k}>
             <div className="row-text">
@@ -498,9 +541,9 @@ export default function SettingsView(): JSX.Element {
           <div className="flat-group">
             <button
               className="mini"
-              disabled={sameList(settings.ignoredCharacterTags, DEFAULT_IGNORED)}
+              disabled={sameList(cur.ignoredCharacterTags, DEFAULT_IGNORED)}
               onClick={() =>
-                void saveSettings({
+                edit({
                   ignoredCharacterTags: [...DEFAULT_IGNORED]
                 })
               }
@@ -514,14 +557,14 @@ export default function SettingsView(): JSX.Element {
           캐릭터로 치지 않을 태그 (플레이어·마스코트 등). 태거 태그 이름 그대로 입력하세요. 예: sensei_(blue_archive)
         </div>
         <div className="tag-list">
-          {settings.ignoredCharacterTags.map((t) => (
+          {cur.ignoredCharacterTags.map((t) => (
             <span className="tag-chip" key={t}>
               {t}
               <button
                 title="빼기"
                 onClick={() =>
-                  void saveSettings({
-                    ignoredCharacterTags: settings.ignoredCharacterTags.filter((x) => x !== t)
+                  edit({
+                    ignoredCharacterTags: cur.ignoredCharacterTags.filter((x) => x !== t)
                   })
                 }
               >
@@ -538,9 +581,9 @@ export default function SettingsView(): JSX.Element {
           onKeyDown={(e) => {
             const t = newTag.trim().toLowerCase().replace(/\s+/g, '_')
             if (e.key === 'Enter' && t) {
-              if (!settings.ignoredCharacterTags.includes(t))
-                void saveSettings({
-                  ignoredCharacterTags: [...settings.ignoredCharacterTags, t]
+              if (!cur.ignoredCharacterTags.includes(t))
+                edit({
+                  ignoredCharacterTags: [...cur.ignoredCharacterTags, t]
                 })
               setNewTag('')
             }
@@ -574,11 +617,11 @@ export default function SettingsView(): JSX.Element {
               </div>
             </div>
             <div className="flat-group">
-              {[true, false].map((v) => (
+              {[false, true].map((v) => (
                 <button
                   key={String(v)}
-                  className={`mini ${settings.autoUpdate === v ? 'on' : ''}`}
-                  onClick={() => void saveSettings({ autoUpdate: v })}
+                  className={`mini ${cur.autoUpdate === v ? 'on' : ''}`}
+                  onClick={() => edit({ autoUpdate: v })}
                 >
                   {v ? '켜기' : '끄기'}
                 </button>
@@ -625,7 +668,46 @@ export default function SettingsView(): JSX.Element {
         </div>
       </section>
 
+      <div className="settings-actions">
+        <button className="btn" onClick={() => setView(prevView === 'settings' ? 'library' : prevView)}>
+          취소
+        </button>
+        <button className="btn primary" onClick={() => void commit()}>
+          저장
+        </button>
+      </div>
       <div className="version">Sorta v{info?.version}</div>
+      {nas && (
+        <NasDialog
+          onClose={() => setNas(null)}
+          onAdded={(p) => {
+            if (nas === 'organize') edit({ organizeDir: p })
+            else if (!cur.sourceDirs.includes(p)) edit({ sourceDirs: [...cur.sourceDirs, p] })
+            setNas(null)
+          }}
+        />
+      )}
+      {pendingNav && (
+        <div className="modal-back" onMouseDown={clearPendingNav}>
+          <div className="modal small" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>저장하지 않은 변경이 있습니다</h2>
+            </div>
+            <div className="row-desc">설정을 저장하고 나갈까요?</div>
+            <div className="modal-foot">
+              <button className="btn" onClick={clearPendingNav}>
+                닫기
+              </button>
+              <button className="btn" onClick={leaveDiscard}>
+                저장하지 않기
+              </button>
+              <button className="btn primary" autoFocus onClick={() => void leaveSave()} onKeyDown={(e) => e.key === 'Escape' && clearPendingNav()}>
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -62,18 +62,18 @@ export default function ManageView({ tabs }: { tabs: ReactNode }): JSX.Element {
 
   return (
     <div ref={pageRef} className="page manage">
-      <div className="page-head">
-        <h1>캐릭터</h1>
+      <div className="page-head stack">
+        <h1>관리</h1>
         {tabs}
         <span className="spacer" />
         <div className="flat-group">
-          <button className="mini" title="소속 조직도 · 캐릭터 · 학습 데이터를 공유 파일로 저장" onClick={() => setPackOpen('export')}>
+          <button className="mini" title="소속 조직도 · 캐릭터 · 학습 데이터 · 그림별 분류 결과를 파일로 저장" onClick={() => setPackOpen('export')}>
             <SaveAltIcon />
             내보내기
           </button>
           <button
             className="mini"
-            title="다른 사람이 내보낸 공유 파일(.sortapack)을 불러오기"
+            title="내보낸 파일(.sortapack)을 불러오기"
             onClick={() => void window.api.pickPack().then((f) => f && setImportFile(f))}
           >
             <UploadIcon />

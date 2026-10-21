@@ -70,6 +70,15 @@ interface State {
   undo: () => Promise<void>
   redo: () => Promise<void>
   setView: (v: View) => void
+  prevView: View // where 설정's 취소 goes back to
+  // 설정 화면: edits stay a draft until 저장 (null = nothing changed). Leaving
+  // with unsaved edits stops at `pendingNav` (save / discard / stay).
+  settingsDraft: Settings | null
+  editSettings: (patch: Partial<Settings>) => void
+  commitSettings: () => Promise<void>
+  discardSettings: () => void
+  pendingNav: View | null
+  clearPendingNav: () => void
   load: () => Promise<void>
   saveSettings: (patch: Partial<Settings>) => Promise<void>
   onProgress: (e: ProgressEvent) => void
@@ -87,6 +96,14 @@ interface State {
   openViewer: (i: number | null) => void
   goToNode: (node: LibraryNode) => void // search pick: open the node, the tree scrolls to it
   treeReveal: { node: LibraryNode; n: number } | null
+}
+
+// Settings keys the draft changed (compared as JSON).
+export function settingsChanges(s: { settings: Settings | null; settingsDraft: Settings | null }): (keyof Settings)[] {
+  const d = s.settingsDraft
+  const cur = s.settings
+  if (!d || !cur) return []
+  return (Object.keys(d) as (keyof Settings)[]).filter((k) => JSON.stringify(d[k]) !== JSON.stringify(cur[k]))
 }
 
 // A job that holds other actions back (the background comparison never does).
@@ -149,7 +166,28 @@ export const useStore = create<State>((set, get) => ({
     const r = await window.api.redo()
     get().showToast({ ok: true, message: r.label ? `다시 실행 완료: ${r.label}` : '다시 실행할 작업이 없습니다.' })
   },
-  setView: (view) => set({ view }),
+  setView: (view) => {
+    const s = get()
+    if (view === s.view) return
+    if (s.view === 'settings' && settingsChanges(s).length) return set({ pendingNav: view })
+    set({ view, prevView: s.view, settingsDraft: s.view === 'settings' ? null : s.settingsDraft })
+  },
+  prevView: 'library',
+  settingsDraft: null,
+  editSettings: (patch) =>
+    set((s) => (s.settings ? { settingsDraft: { ...(s.settingsDraft ?? s.settings), ...patch } } : {})),
+  commitSettings: async () => {
+    const s = get()
+    const keys = settingsChanges(s)
+    if (!keys.length || !s.settingsDraft) return set({ settingsDraft: null })
+    const patch = Object.fromEntries(keys.map((k) => [k, s.settingsDraft![k]])) as Partial<Settings>
+    await s.saveSettings(patch)
+    set({ settingsDraft: null })
+    s.showToast({ ok: true, message: patch.thresholds ? '저장되었습니다 · 바뀐 분류 기준을 적용합니다' : '저장되었습니다' })
+  },
+  discardSettings: () => set({ settingsDraft: null }),
+  pendingNav: null,
+  clearPendingNav: () => set({ pendingNav: null }),
   load: async () => {
     const [settings, info] = await Promise.all([window.api.getSettings(), window.api.appInfo()])
     // The library view (rating filter, sort) comes back as it was left.
