@@ -36,6 +36,7 @@ export interface Settings {
   // install reads the folder back already classified (core/libfile.ts).
   libraryFile: boolean
   libraryFileLearned: boolean // with 학습 데이터 (learned + my confirmed pictures' vectors)
+  libraryFileThumbs: boolean // 미리 보기 too (<organizeDir>/.sorta/thumbs, for the mobile app)
   libraryFileStamps: Record<string, number> // organize folder → createdAt of the file last written / read
   moveAuto: boolean // also move auto-confirmed images (else only user-confirmed)
   splitByRating: boolean // 일반/ · 민감/ · R-18/ top folders
@@ -60,6 +61,7 @@ export interface Settings {
   libRatings: RatingPick[] // 분류 filter
   libRatingsPrev: RatingPick[] | null // selection before "전체" was ticked
   libGroups: number[] // 그룹 filter (checked groups; empty = all pictures)
+  libFavOnly: boolean // 즐겨찾기만
   libSort: SortKey
   libDir: SortDir
   libLayout: 'grid' | 'list'
@@ -104,13 +106,14 @@ export type LibraryNode =
   | { type: 'unclassified' } // imported, tagger not run yet
 
 export type RatingPick = Exclude<Rating, 'unknown'>
-export type SortKey = 'name' | 'date' | 'type' | 'size' | 'random'
+export type SortKey = 'name' | 'date' | 'type' | 'size' | 'stars' | 'random'
 export type SortDir = 'asc' | 'desc'
 
 export interface LibraryFilter {
   node: LibraryNode
   ratings: RatingPick[] // all three = no rating filter (unrated images included)
   groups?: number[] // only pictures in one of these groups (empty / absent = no group filter)
+  favOnly?: boolean // 즐겨찾기만 (within the node)
   q: string
   sort: SortKey
   dir: SortDir
@@ -367,6 +370,7 @@ export interface PackExportOptions {
   // Also every picture under this folder (the organize folder) with its 분류 결과;
   // then all games go in and my own vectors travel per picture.
   filesRoot?: string
+  filesRoots?: string[] // and the pictures under these folders (the source folders), placed by `roots`
 }
 export interface PackPreview {
   games: number

@@ -110,6 +110,7 @@ export async function restoreFiles(
       if (ctx.signal.aborted) break
       if (i % 20 === 0) ctx.report(i, files.length, '분류 정보 불러오는 중')
       const f = files[i]
+      if (f.r !== undefined) continue // a source folder's picture: the next import finds it (by sha256)
       const path = join(root, ...f.p.split('/'))
       const known = bySha.get(f.sha) as { id: number; path: string; organized_path: string | null } | undefined
       if (known) {
@@ -208,6 +209,34 @@ export async function restoreFiles(
     })()
     res.added++
   }
+}
+
+// 미리 보기 for the mobile app: <정리 폴더>/.sorta/thumbs/<sha256>.webp, copied
+// from the thumbnail cache for every picture in the file (only the missing
+// ones; those of pictures no longer in the file are removed). Returns the
+// number copied.
+export const THUMB_DIR = 'thumbs'
+export async function syncThumbs(root: string, thumbs: { sha: string; path: string | null }[]): Promise<number> {
+  const dir = join(root, LIB_DIR, THUMB_DIR)
+  await fsp.mkdir(dir, { recursive: true })
+  const have = new Set(await fsp.readdir(dir))
+  const want = new Set<string>()
+  let n = 0
+  for (const t of thumbs) {
+    const name = `${t.sha}.webp`
+    want.add(name)
+    if (have.has(name) || !t.path) continue
+    try {
+      await fsp.copyFile(t.path, join(dir, name + '.tmp'))
+      await fsp.rename(join(dir, name + '.tmp'), join(dir, name))
+      have.add(name)
+      n++
+    } catch {
+      // thumbnail missing / folder busy — tried again on the next write
+    }
+  }
+  for (const name of have) if (!want.has(name)) await fsp.unlink(join(dir, name)).catch(() => {})
+  return n
 }
 
 // The organize folder's file, written next to the pictures. tmp → rename, so

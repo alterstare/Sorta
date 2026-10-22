@@ -90,6 +90,7 @@ interface State {
   setRatings: (r: RatingPick[], prev?: RatingPick[] | null) => void
   setSort: (k: SortKey) => void
   setGroupFilter: (ids: number[]) => void
+  setFavOnly: (on: boolean) => void
   reshuffle: () => void // 재정렬: a new random order (other sorts: just re-query)
   setDir: (d: SortDir) => void
   setQuery: (q: string) => void
@@ -191,7 +192,7 @@ export const useStore = create<State>((set, get) => ({
   load: async () => {
     const [settings, info] = await Promise.all([window.api.getSettings(), window.api.appInfo()])
     // The library view (rating filter, sort) comes back as it was left.
-    set({ settings, info, filter: { ...get().filter, ratings: settings.libRatings, groups: settings.libGroups, sort: settings.libSort, dir: settings.libDir } })
+    set({ settings, info, filter: { ...get().filter, ratings: settings.libRatings, groups: settings.libGroups, favOnly: settings.libFavOnly, sort: settings.libSort, dir: settings.libDir } })
     await Promise.all([get().refreshModels(), get().refreshLibrary()])
   },
   saveSettings: async (patch) => set({ settings: await window.api.saveSettings(patch) }),
@@ -236,6 +237,11 @@ export const useStore = create<State>((set, get) => ({
   setGroupFilter: (groups) => {
     set({ filter: { ...get().filter, groups }, viewerIndex: null })
     void get().saveSettings({ libGroups: groups })
+    void get().refreshLibrary()
+  },
+  setFavOnly: (favOnly) => {
+    set({ filter: { ...get().filter, favOnly }, viewerIndex: null })
+    void get().saveSettings({ libFavOnly: favOnly })
     void get().refreshLibrary()
   },
   setSort: (sort) => {

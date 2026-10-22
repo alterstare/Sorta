@@ -154,6 +154,29 @@ export function createCharacter(db: Db, name: string, series: string): number {
   return (db.prepare('SELECT id FROM characters WHERE series_id = ? AND name = ?').get(sid, n) as { id: number }).id
 }
 
+// A whole classification as another device left it (Sorta 모바일 — its
+// review, or the undo of one): characters with their status / candidates,
+// kind, 단체 사진, rating. Fields left out stay as they are. One undo step.
+export interface ImageState {
+  rows?: { character_id: number | null; status: string; source: string; confidence: number | null; candidates: string | null }[]
+  kind?: string
+  groupOnly?: number
+  groupSeriesId?: number | null
+  rating?: { rating: string; source: string; review: number }
+}
+export function setImageState(db: Db, log: ActionLog, imageId: number, st: ImageState, label: string): void {
+  edit(db, log, [imageId], label, () => {
+    if (st.rows) {
+      db.prepare('DELETE FROM image_characters WHERE image_id = ?').run(imageId)
+      const ins = db.prepare('INSERT INTO image_characters (image_id, character_id, status, source, confidence, candidates) VALUES (?, ?, ?, ?, ?, ?)')
+      for (const r of st.rows) ins.run(imageId, r.character_id, r.status, r.source, r.confidence, r.candidates)
+    }
+    if (st.kind !== undefined) db.prepare('UPDATE images SET kind = ? WHERE id = ?').run(st.kind, imageId)
+    if (st.groupOnly !== undefined) db.prepare('UPDATE images SET group_only = ?, group_series_id = ? WHERE id = ?').run(st.groupOnly, st.groupOnly ? (st.groupSeriesId ?? null) : null, imageId)
+    if (st.rating) db.prepare('UPDATE images SET rating = ?, rating_source = ?, rating_review = ? WHERE id = ?').run(st.rating.rating, st.rating.source, st.rating.review, imageId)
+  })
+}
+
 // ---- read side ----
 
 export function searchCharacters(db: Db, q: string, limit = 12): CharacterHit[] {

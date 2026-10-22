@@ -44,6 +44,8 @@ import * as collect from './collect'
 import * as dupes from './dupes'
 import * as pack from './pack'
 import * as libfile from './libfile'
+import * as mobile from './mobile'
+import type { MobileResult } from './mobile'
 import type { RestoreResult } from './libfile'
 import { gzipSync } from 'zlib'
 import type { GrayLoader } from './dupes'
@@ -667,7 +669,12 @@ export class SortaCore {
 
   private libPack(appVersion: string): pack.Pack {
     const s = this.settings()
-    return pack.buildPack(this.db, appVersion, { includeLearned: s.libraryFileLearned, includeUserRefs: s.libraryFileLearned, filesRoot: s.organizeDir })
+    return pack.buildPack(this.db, appVersion, {
+      includeLearned: s.libraryFileLearned,
+      includeUserRefs: s.libraryFileLearned,
+      filesRoot: s.organizeDir,
+      filesRoots: s.sourceDirs
+    })
   }
 
   async writeLibFile(appVersion: string): Promise<boolean> {
@@ -676,6 +683,13 @@ export class SortaCore {
     const p = this.libPack(appVersion)
     await libfile.writeLibFile(s.organizeDir, gzipSync(Buffer.from(JSON.stringify(p))))
     this.stampLibFile(s.organizeDir, p.createdAt)
+    if (s.libraryFileThumbs) {
+      const shas = new Set((p.files ?? []).map((f) => f.sha))
+      const rows = (this.db.prepare('SELECT sha256 AS sha, thumbnail_path AS path FROM images').all() as { sha: string; path: string | null }[]).filter(
+        (r) => shas.has(r.sha)
+      )
+      await libfile.syncThumbs(s.organizeDir, rows)
+    }
     return true
   }
 
@@ -690,6 +704,16 @@ export class SortaCore {
     writeFileSync(file + '.tmp', gzipSync(Buffer.from(JSON.stringify(p))))
     renameSync(file + '.tmp', file)
     this.stampLibFile(s.organizeDir, p.createdAt)
+  }
+
+  // ---- 모바일 변경 파일 (<정리 폴더>/.sorta/mobile, mobile.ts) ----
+
+  async pendingMobileEdits(): Promise<string[]> {
+    const root = this.settings().organizeDir
+    return root ? mobile.pendingMobileFiles(root) : []
+  }
+  runMobileEdits(files: string[]): { id: number; done: Promise<MobileResult> } {
+    return this.queue.add('모바일 변경 반영', () => mobile.applyMobileFiles(this.db, this.log, files))
   }
 
   // ---- 중복 정리 ----

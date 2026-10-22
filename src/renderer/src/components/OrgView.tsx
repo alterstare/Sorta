@@ -5,6 +5,7 @@
 // user accepts them. Every change is one Ctrl+Z step.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, JSX, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { WikiRow } from '../store'
@@ -53,6 +54,8 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
   const [wiki, setWiki] = useState('')
   const [sel, setSel] = useKept<number[]>('org.sel', []) // selected characters (Ctrl+click), dragged together
   const [editing, setEditing] = useState<{ mode: 'add' | 'rename'; id: number | null } | null>(null)
+  // 소속 미지정 chip clicked → pick its 소속 right there (the selection goes along)
+  const [assign, setAssign] = useState<{ ids: number[]; x: number; y: number } | null>(null)
   const orgLookup = useStore((s) => s.orgLookup)
   const startOrgLookup = useStore((s) => s.startOrgLookup)
   const setOrgRows = useStore((s) => s.setOrgRows)
@@ -88,6 +91,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
   useEffect(() => {
     setSel([])
     setEditing(null)
+    setAssign(null)
   }, [game])
   // Search → jump: once the target's game is shown, scroll its box (or the
   // character's chip) into view and flash it.
@@ -297,14 +301,47 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
             if (d?.kind === 'chars') dropOn(d, null, 'inside')
           }}
         >
-          <div className="row-title">소속 미지정 · {unplaced.length}명</div>
+          <div className="row-title">
+            소속 미지정 · {unplaced.length}명<span className="dim"> · 눌러서 소속 지정, 끌어서 상자에 놓기</span>
+          </div>
           <div className="chip-row">
             {unplaced.map((c) => (
-              <CharChip key={c.id} c={c} sel={sel} setSel={setSel} onDragStart={startChars} />
+              <CharChip
+                key={c.id}
+                c={c}
+                sel={sel}
+                setSel={setSel}
+                onDragStart={startChars}
+                onPick={(e) => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  setAssign({ ids: sel.includes(c.id) && sel.length > 1 ? sel : [c.id], x: r.left, y: r.bottom + 4 })
+                }}
+              />
             ))}
             {unplaced.length === 0 && <span className="row-desc">모든 캐릭터에 소속이 있습니다.</span>}
           </div>
         </div>
+      )}
+
+      {assign && chart && (
+        <AssignPop
+          at={assign}
+          chart={chart}
+          names={chart.characters.filter((c) => assign.ids.includes(c.id)).map((c) => c.name)}
+          onClose={() => setAssign(null)}
+          onPick={(id) => {
+            const ids = assign.ids
+            setAssign(null)
+            void act(() => window.api.placeCharacters(ids, id), '소속 지정').then((ok) => ok && setSel([]))
+          }}
+          onNew={(name) => {
+            const ids = assign.ids
+            setAssign(null)
+            void act(async () => window.api.placeCharacters(ids, await window.api.addAffiliation(chart.series, name, null)), '소속 추가 · 지정').then(
+              (ok) => ok && setSel([])
+            )
+          }}
+        />
       )}
 
       {chart && !found && (
@@ -466,16 +503,114 @@ function OrgSearch({ games, version, onPick }: { games: { name: string }[]; vers
   )
 }
 
+// 소속 미지정 chip → this list: every 소속 of the game (조직도 order, nested),
+// or a new top-level one by name.
+function AssignPop({
+  at,
+  chart,
+  names,
+  onClose,
+  onPick,
+  onNew
+}: {
+  at: { x: number; y: number }
+  chart: OrgChart
+  names: string[]
+  onClose: () => void
+  onPick: (id: number) => void
+  onNew: (name: string) => void
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [q, setQ] = useState('')
+  const [pos, setPos] = useState({ top: at.y, left: at.x })
+  useEffect(() => {
+    const down = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', down, true)
+    window.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('mousedown', down, true)
+      window.removeEventListener('keydown', key)
+    }
+  }, [onClose])
+  // keep it inside the window
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8)),
+      top: at.y + r.height > window.innerHeight - 8 ? Math.max(8, at.y - r.height - 40) : at.y
+    })
+  }, [at])
+  const rows = useMemo(() => {
+    const kids = new Map<number | null, OrgNode[]>()
+    for (const n of chart.nodes) kids.set(n.parentId, [...(kids.get(n.parentId) ?? []), n])
+    for (const l of kids.values()) l.sort((a, b) => a.order - b.order || a.id - b.id)
+    const out: { n: OrgNode; depth: number }[] = []
+    const walk = (p: number | null, depth: number): void => {
+      for (const n of kids.get(p) ?? []) {
+        out.push({ n, depth })
+        walk(n.id, depth + 1)
+      }
+    }
+    walk(null, 0)
+    return out
+  }, [chart])
+  const t = q.trim().toLowerCase()
+  const shown = t ? rows.filter((r) => [r.n.name, ...r.n.aliases].some((x) => x.toLowerCase().includes(t))) : rows
+  const exact = rows.some((r) => r.n.name.toLowerCase() === t)
+  return createPortal(
+    <div ref={ref} className="group-pop org-assign" style={pos}>
+      <div className="org-assign-head">{names.length > 1 ? `${names[0]} 외 ${names.length - 1}명` : names[0]} · 소속 지정</div>
+      <input
+        className="tag-input"
+        autoFocus
+        value={q}
+        placeholder="소속 찾기 · 새 소속 이름"
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') {
+            if (shown.length === 1) onPick(shown[0].n.id)
+            else if (q.trim() && !exact) onNew(q.trim())
+          }
+        }}
+      />
+      <div className="org-assign-list">
+        {shown.map(({ n, depth }) => (
+          <button key={n.id} className="group-pop-opt" style={{ paddingLeft: 9 + (t ? 0 : depth * 14) }} onClick={() => onPick(n.id)}>
+            {n.name}
+          </button>
+        ))}
+        {!rows.length && <div className="group-pop-empty">아직 소속이 없습니다</div>}
+      </div>
+      {q.trim() && !exact && (
+        <button className="group-pop-opt new" onClick={() => onNew(q.trim())}>
+          <AddIcon />"{q.trim()}" 새 소속으로 지정
+        </button>
+      )}
+    </div>,
+    document.body
+  )
+}
+
 function CharChip({
   c,
   sel,
   setSel,
-  onDragStart
+  onDragStart,
+  onPick
 }: {
   c: OrgCharacter
   sel: number[]
   setSel: (f: (s: number[]) => number[]) => void
   onDragStart: (e: DragEvent, id: number) => void
+  onPick?: (e: React.MouseEvent) => void // plain click (소속 미지정: pick a 소속)
 }): JSX.Element {
   const on = sel.includes(c.id)
   return (
@@ -487,6 +622,7 @@ function CharChip({
       onDragStart={(e) => (e.stopPropagation(), onDragStart(e, c.id))}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey) setSel((s) => (s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]))
+        else if (onPick) onPick(e)
         else setSel((s) => (s.length === 1 && s[0] === c.id ? [] : [c.id]))
       }}
     >

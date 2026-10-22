@@ -251,6 +251,7 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
   }
   else if (n.type === 'unclassified') where.push('i.classified_at IS NULL')
   where.push(n.type === 'setAside' ? 'i.set_aside = 1' : 'i.set_aside = 0')
+  if (f.favOnly) where.push('i.favorite = 1')
   const rc = filterClause(f.ratings, f.groups)
   if (rc) where.push(rc)
   const q = f.q.trim().toLowerCase()
@@ -347,7 +348,8 @@ export function sortImages(items: ImageItem[], key: LibraryFilter['sort'], dir: 
     name: byName,
     date: (a, b) => (a.mtime ?? a.importedAt) - (b.mtime ?? b.importedAt) || byName(a, b),
     type: (a, b) => collator.compare(extOf(a.path), extOf(b.path)) || byName(a, b),
-    size: (a, b) => (a.fileSize ?? 0) - (b.fileSize ?? 0) || byName(a, b)
+    size: (a, b) => (a.fileSize ?? 0) - (b.fileSize ?? 0) || byName(a, b),
+    stars: (a, b) => a.stars - b.stars || byName(a, b)
   }
   const s = dir === 'asc' ? 1 : -1
   return items.sort((a, b) => s * cmp[key](a, b))

@@ -3305,3 +3305,37 @@ select.tag-input {
   background: var(--danger);
   filter: var(--hover-filter);
 }
+
+/* 소속 미지정 stays on top while the chart scrolls (characters are dragged
+   from it); a long list scrolls inside. */
+.page.org .org-unplaced {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  max-height: 32vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-subtle);
+}
+.org-assign {
+  width: 260px;
+  max-height: 360px;
+  gap: 4px;
+}
+.org-assign-head {
+  padding: 4px 9px 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-assign .tag-input {
+  margin: 2px 4px 4px;
+  width: auto;
+}
+.org-assign-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}

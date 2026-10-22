@@ -53,7 +53,8 @@ interface PackSeries {
 // One picture under the organize folder and how it is classified. Character
 // references are pack character keys ("c12"); `gs` indexes `series`.
 export interface PackFile {
-  p: string // path relative to the organize folder, "/" separated
+  p: string // path relative to the organize folder (or to roots[r]), "/" separated
+  r?: number // under another folder (a source folder, `roots`) instead of the organize folder
   sha: string
   size: number | null
   rating: string
@@ -89,6 +90,9 @@ export interface Pack {
   series: PackSeries[]
   groups?: PackGroup[]
   files?: PackFile[]
+  // Source folders whose pictures are in `files` too (r = index): the ones
+  // still waiting in the review queue, so the mobile app can review them.
+  roots?: string[]
 }
 
 // ---- float16 ----
@@ -203,14 +207,23 @@ export function buildPack(db: Db, appVersion: string, o: PackExportOptions): Pac
     out.groups = (db.prepare('SELECT name, sort_order FROM fav_groups ORDER BY sort_order, id').all() as { name: string; sort_order: number }[]).map(
       (g) => ({ name: g.name, order: g.sort_order })
     )
-    out.files = packFiles(db, o.filesRoot, series.map((s) => s.id), o.includeLearned && o.includeUserRefs)
+    const roots = (o.filesRoots ?? []).filter((r) => r && resolve(r) !== resolve(o.filesRoot!))
+    out.files = packFiles(db, o.filesRoot, roots, series.map((s) => s.id), o.includeLearned && o.includeUserRefs)
+    if (roots.length) out.roots = roots
   }
   return out
 }
 
-// Pictures under `root` with their classification (see PackFile).
-function packFiles(db: Db, root: string, seriesIds: number[], learned: boolean): PackFile[] {
+// Pictures under `root` (or one of `roots`) with their classification (see PackFile).
+function packFiles(db: Db, root: string, roots: string[], seriesIds: number[], learned: boolean): PackFile[] {
   const base = resolve(root)
+  // the most specific folder first (a source folder inside another)
+  const others = roots.map((r, i) => ({ i, base: resolve(r) })).sort((a, b) => b.base.length - a.base.length)
+  const place = (abs: string): { r?: number; p: string } | null => {
+    if (abs.startsWith(base + sep)) return { p: relative(base, abs).split(sep).join('/') }
+    const o = others.find((x) => abs.startsWith(x.base + sep))
+    return o ? { r: o.i, p: relative(o.base, abs).split(sep).join('/') } : null
+  }
   const gIndex = new Map(seriesIds.map((id, i) => [id, i]))
   const charKey = (id: number | null): string | null => (id === null ? null : `c${id}`)
   const imgs = db
@@ -244,8 +257,8 @@ function packFiles(db: Db, root: string, seriesIds: number[], learned: boolean):
   const refQ = db.prepare("SELECT character_id, vector FROM refs WHERE source = 'user' AND image_id = ?")
   const out: PackFile[] = []
   for (const i of imgs) {
-    const abs = resolve(i.path)
-    if (!abs.startsWith(base + sep)) continue
+    const at = place(resolve(i.path))
+    if (!at) continue
     const chars = charsQ.all(i.id) as {
       character_id: number | null
       status: string
@@ -255,7 +268,8 @@ function packFiles(db: Db, root: string, seriesIds: number[], learned: boolean):
       candidates: string | null
     }[]
     const f: PackFile = {
-      p: relative(base, abs).split(sep).join('/'),
+      p: at.p,
+      ...(at.r === undefined ? {} : { r: at.r }),
       sha: i.sha256,
       size: i.file_size,
       rating: i.rating,

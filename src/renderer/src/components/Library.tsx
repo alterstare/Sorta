@@ -10,6 +10,7 @@ import {
   ArrowUpIcon,
   FilterIcon,
   FolderIcon,
+  FavoriteIcon,
   FolderOpenIcon,
   GridViewIcon,
   ListIcon,
@@ -41,6 +42,7 @@ const SORTS: [SortKey, string][] = [
   ['date', '날짜'],
   ['type', '유형'],
   ['size', '크기'],
+  ['stars', '평점'],
   ['random', '무작위']
 ]
 const SIZES: [ThumbSize, string][] = [
@@ -55,7 +57,7 @@ const SAFE: [SafeMode, string][] = [
 ]
 
 export default function Library(): JSX.Element {
-  const { settings, saveSettings, setView, filter, setRatings, setSort, setDir, setGroupFilter, reshuffle, images, tree, showToast, jobs } = useStore()
+  const { settings, saveSettings, setView, filter, setRatings, setSort, setDir, setGroupFilter, setFavOnly, reshuffle, images, tree, showToast, jobs } = useStore()
   // 그룹 filter: checked groups only (none checked = every picture); deleted groups drop out.
   const groups = tree?.groups ?? []
   const selectedCount = useStore((s) => s.selected.size)
@@ -185,6 +187,13 @@ export default function Library(): JSX.Element {
               onClick={() => setDir(filter.dir === 'asc' ? 'desc' : 'asc')}
             >
               {filter.dir === 'asc' ? <ArrowUpIcon /> : <ArrowDownIcon />}
+            </button>
+            <button
+              className={`mini icon fav-only ${filter.favOnly ? 'on' : ''}`}
+              title={filter.favOnly ? '즐겨찾기만 보는 중 (누르면 전체)' : '즐겨찾기만 보기'}
+              onClick={() => setFavOnly(!filter.favOnly)}
+            >
+              <FavoriteIcon filled={!!filter.favOnly} />
             </button>
           </div>
           <div className="flat-group">

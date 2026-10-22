@@ -228,6 +228,26 @@ export default function SettingsView(): JSX.Element {
         </div>
         <div className="row">
           <div className="row-text">
+            <div className="row-title">분류 정보 파일에 미리 보기 포함</div>
+            <div className="row-desc">
+              그림마다 작은 미리 보기(.sorta/thumbs)를 함께 둡니다. Sorta 모바일이 NAS의 그림을 빠르게 보여줄 때 씁니다. 그림 하나에 수십 KB입니다.
+            </div>
+          </div>
+          <div className="flat-group">
+            {[false, true].map((v) => (
+              <button
+                key={String(v)}
+                className={`mini ${cur.libraryFileThumbs === v ? 'on' : ''}`}
+                disabled={!cur.libraryFile}
+                onClick={() => edit({ libraryFileThumbs: v })}
+              >
+                {v ? '포함' : '제외'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
             <div className="row-title">감시</div>
             <div className="row-desc">원본 폴더에 새 그림이 생기면 자동으로 가져와 분류합니다.</div>
           </div>

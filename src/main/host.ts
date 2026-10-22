@@ -156,6 +156,7 @@ let libTimer: NodeJS.Timeout | null = null
 let libSeen = -1
 let libWriting = false
 function libTick(): void {
+  void mobileCheck()
   if (!status.ready || libWriting || !core.libFileDirty()) return
   const mark = core.changeMark()
   if (mark !== libSeen) {
@@ -169,6 +170,24 @@ function libTick(): void {
       /* folder gone / busy — tried again on the next change */
     })
     .finally(() => (libWriting = false))
+}
+
+// Sorta 모바일's changes (files in <정리 폴더>/.sorta/mobile) → applied here.
+let mobileBusy = false
+async function mobileCheck(): Promise<void> {
+  if (!status.ready || mobileBusy) return
+  mobileBusy = true
+  try {
+    const files = await core.pendingMobileEdits()
+    if (!files.length) return
+    const r = await summarize(core.runMobileEdits(files).done, (x) =>
+      x.applied || x.skipped ? `모바일 변경 ${x.applied}건 반영${x.skipped ? ` · 찾지 못해 건너뜀 ${x.skipped}건` : ''} · Ctrl+Z로 되돌리기` : ''
+    )
+    if (r.message) send(IPC.toast, r)
+    learnRefreshSoon(500) // confirmations → references; organized pictures follow
+  } finally {
+    mobileBusy = false
+  }
 }
 
 // Organized images follow classification changes (moved to their new folder).
@@ -603,7 +622,7 @@ export function startSorta(): void {
   if (!status.ready || started) return
   started = true
   restartWatch()
-  void libFileCheck()
+  void libFileCheck().then(() => mobileCheck())
   libTimer = setInterval(libTick, 15_000)
   // Results were reset for a pipeline fix → re-classify in the background
   // (progress shows in the status bar; cancellable).
