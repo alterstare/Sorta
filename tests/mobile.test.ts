@@ -140,7 +140,7 @@ describe('Sorta 모바일', () => {
     core.close()
   })
 
-  it('삭제 on the phone goes to the recycle bin on the PC', async () => {
+  it('삭제 on the phone moves the picture into 삭제됨 on the PC', async () => {
     const core = await library()
     await core.writeLibFile('test')
     const open = readLib().files!.find((f) => f.p === 'open.png')!
@@ -148,8 +148,23 @@ describe('Sorta 모바일', () => {
     const binned: string[] = []
     const r = await core.runMobileEdits(await core.pendingMobileEdits(), async (p) => void binned.push(p)).done
     expect(r).toMatchObject({ applied: 1, skipped: 0 })
-    expect(binned).toEqual([join(src, 'open.png')])
+    // from the phone → <정리 폴더>/삭제됨 (never the PC's recycle bin)
+    expect(binned).toEqual([])
+    expect(existsSync(join(out, '삭제됨', 'open.png'))).toBe(true)
+    expect(existsSync(join(src, 'open.png'))).toBe(false)
     expect(core.images(ALL).some((i) => i.path.endsWith('open.png'))).toBe(false)
+    core.close()
+  })
+
+  it('삭제 on the PC: network files go to 삭제됨, local ones to the recycle bin', async () => {
+    const { trashFor, isNetworkPath } = await import('../src/core/trash')
+    expect(isNetworkPath('\\\\nas\\share\\a.png')).toBe(true)
+    expect(isNetworkPath('C:\\pics\\a.png')).toBe(false)
+    const binned: string[] = []
+    const core = await library()
+    const hoshino = core.images(ALL).find((i) => i.path.endsWith('hoshino.png'))!
+    await trashFor(out, async (p) => void binned.push(p))(hoshino.path)
+    expect(binned).toEqual([hoshino.path])
     core.close()
   })
 })

@@ -59,7 +59,7 @@ import type { JsonGet } from './pipeline/wiki'
 import * as booru from './pipeline/booru'
 import { stopTunnel } from './pipeline/booruNet'
 import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
-import { trashImages } from './trash'
+import { trashFor, trashImages } from './trash'
 import type { TrashFn } from './trash'
 import type { LearnModels } from './pipeline/knn'
 import { displayName } from './pipeline/tags'
@@ -714,7 +714,12 @@ export class SortaCore {
   }
   runMobileEdits(files: string[], trash?: TrashFn): { id: number; done: Promise<MobileResult> } {
     return this.queue.add('모바일 변경 반영', () =>
-      mobile.applyMobileFiles(this.db, this.log, files, trash ? { fn: trash, thumbsDir: this.paths.thumbsDir } : undefined)
+      mobile.applyMobileFiles(
+        this.db,
+        this.log,
+        files,
+        trash ? { fn: trashFor(this.settings().organizeDir, trash, true), thumbsDir: this.paths.thumbsDir } : undefined
+      )
     )
   }
 
@@ -754,7 +759,8 @@ export class SortaCore {
   // Move duplicates to <정리 폴더>/중복 (hidden from the library). One undo step.
   // 삭제 → the OS recycle bin (`trash` from the host), out of the library.
   runTrash(ids: number[], trash: TrashFn): { id: number; done: Promise<{ trashed: number; failed: string[] }> } {
-    return this.queue.add('휴지통으로 보내기', () => trashImages(this.db, ids, trash, this.paths.thumbsDir))
+    const fn = trashFor(this.settings().organizeDir, trash)
+    return this.queue.add('삭제', () => trashImages(this.db, ids, fn, this.paths.thumbsDir))
   }
 
   runSetAside(ids: number[]): { id: number; done: Promise<{ moved: number; failed: string[] }> } {

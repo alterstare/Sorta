@@ -452,7 +452,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.duplicates, () => core.duplicates())
   ipcMain.handle(IPC.trash, async (_e, ids: number[]) => {
     const r = await summarize(core.runTrash(ids, (p) => shell.trashItem(p)).done, (x) =>
-      `${x.trashed}장을 휴지통으로 보냈습니다${x.failed.length ? ` · ${x.failed.length}장 실패` : ''} · 휴지통에서 복원할 수 있습니다`
+      `${x.trashed}장 삭제${x.failed.length ? ` · ${x.failed.length}장 실패` : ''} · 휴지통(NAS 그림은 정리 폴더의 삭제됨 폴더)에서 되살릴 수 있습니다`
     )
     learnRefreshSoon() // confirmed pictures may be gone → references change
     return r

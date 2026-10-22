@@ -73,7 +73,7 @@ export function useImageMenu(items: ImageItem[]): {
     },
     { label: '폴더에서 보기', icon: <FolderOpenIcon />, separator: true, disabled: !one, onClick: () => void window.api.showInFolder(imgs[0].path) },
     {
-      label: one ? '삭제 (휴지통으로)' : `${imgs.length}장 삭제 (휴지통으로)`,
+      label: one ? '삭제' : `${imgs.length}장 삭제`,
       icon: <DeleteIcon />,
       separator: true,
       onClick: () => useStore.getState().setTrashDialog(imgs.map((i) => i.id))
@@ -170,7 +170,7 @@ export function TrashDialog(): JSX.Element | null {
         <div className="modal-head">
           <h2>{ids.length}장 삭제</h2>
         </div>
-        <div className="row-desc">원본 파일을 휴지통으로 보내고 라이브러리에서 뺍니다. Ctrl+Z로는 되돌릴 수 없고, 휴지통에서 복원한 뒤 다시 가져오면 돌아옵니다.</div>
+        <div className="row-desc">원본 파일을 휴지통으로 보내고 라이브러리에서 뺍니다. NAS의 그림은 휴지통이 없어 정리 폴더의 삭제됨 폴더로 옮깁니다. Ctrl+Z로는 되돌릴 수 없고, 휴지통 · 삭제됨 폴더에서 꺼내 다시 가져오면 돌아옵니다.</div>
         <div className="modal-foot">
           <button className="btn" onClick={close}>
             취소
@@ -183,7 +183,7 @@ export function TrashDialog(): JSX.Element | null {
             onKeyDown={(e) => e.key === 'Escape' && close()}
           >
             <DeleteIcon />
-            {busy ? '보내는 중…' : '휴지통으로 보내기'}
+            {busy ? '삭제하는 중…' : '삭제'}
           </button>
         </div>
       </div>
