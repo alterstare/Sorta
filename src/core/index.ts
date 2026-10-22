@@ -712,8 +712,10 @@ export class SortaCore {
     const root = this.settings().organizeDir
     return root ? mobile.pendingMobileFiles(root) : []
   }
-  runMobileEdits(files: string[]): { id: number; done: Promise<MobileResult> } {
-    return this.queue.add('모바일 변경 반영', () => mobile.applyMobileFiles(this.db, this.log, files))
+  runMobileEdits(files: string[], trash?: TrashFn): { id: number; done: Promise<MobileResult> } {
+    return this.queue.add('모바일 변경 반영', () =>
+      mobile.applyMobileFiles(this.db, this.log, files, trash ? { fn: trash, thumbsDir: this.paths.thumbsDir } : undefined)
+    )
   }
 
   // ---- 중복 정리 ----

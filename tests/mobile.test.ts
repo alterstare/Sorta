@@ -139,4 +139,17 @@ describe('Sorta 모바일', () => {
     expect(byName(core, 'open.png').characters.some((c) => c.status === 'pending')).toBe(true)
     core.close()
   })
+
+  it('삭제 on the phone goes to the recycle bin on the PC', async () => {
+    const core = await library()
+    await core.writeLibFile('test')
+    const open = readLib().files!.find((f) => f.p === 'open.png')!
+    drop([{ op: 'trash', at: 1, sha: open.sha }])
+    const binned: string[] = []
+    const r = await core.runMobileEdits(await core.pendingMobileEdits(), async (p) => void binned.push(p)).done
+    expect(r).toMatchObject({ applied: 1, skipped: 0 })
+    expect(binned).toEqual([join(src, 'open.png')])
+    expect(core.images(ALL).some((i) => i.path.endsWith('open.png'))).toBe(false)
+    core.close()
+  })
 })

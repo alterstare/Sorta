@@ -36,6 +36,7 @@ export type MobileEdit =
   | { op: 'deleteAff'; at: number; series: string; name: string }
   | { op: 'renameChar'; at: number; char: CharRef; to: string }
   | { op: 'group'; at: number; action: 'create' | 'rename' | 'delete'; name: string; to?: string }
+  | { op: 'trash'; at: number; sha: string } // 삭제: the PC sends the original to the recycle bin
 
 export interface MobileEditFile {
   format: typeof MOBILE_FORMAT

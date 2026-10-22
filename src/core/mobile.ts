@@ -2,11 +2,14 @@
 // the phone and leaves its changes as files next to the 분류 정보 파일. They
 // are applied here in order, each change through the same functions the
 // screens use (so each one is a Ctrl+Z step), then the file is deleted.
+// 삭제 on the phone = the PC's own 삭제: the original goes to the recycle bin.
 import { promises as fsp } from 'fs'
 import { join } from 'path'
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
 import { LIB_DIR } from './libfile'
+import { trashImages } from './trash'
+import type { TrashFn } from './trash'
 import * as review from './review'
 import * as collect from './collect'
 import * as org from './org'
@@ -34,7 +37,12 @@ export async function pendingMobileFiles(root: string): Promise<string[]> {
   }
 }
 
-export async function applyMobileFiles(db: Db, log: ActionLog, files: string[]): Promise<MobileResult> {
+export async function applyMobileFiles(
+  db: Db,
+  log: ActionLog,
+  files: string[],
+  trash?: { fn: TrashFn; thumbsDir: string }
+): Promise<MobileResult> {
   const res: MobileResult = { files: 0, applied: 0, skipped: 0 }
   const batches: { file: string; f: MobileEditFile }[] = []
   for (const file of files) {
@@ -51,7 +59,10 @@ export async function applyMobileFiles(db: Db, log: ActionLog, files: string[]):
     for (const e of f.edits) {
       let ok = false
       try {
-        ok = applyEdit(db, log, e)
+        if (e.op === 'trash') {
+          const img = db.prepare('SELECT id FROM images WHERE sha256 = ? LIMIT 1').get(e.sha) as { id: number } | undefined
+          ok = !!img && !!trash && (await trashImages(db, [img.id], trash.fn, trash.thumbsDir)).trashed > 0
+        } else ok = applyEdit(db, log, e)
       } catch {
         ok = false
       }
@@ -153,6 +164,8 @@ function applyEdit(db: Db, log: ActionLog, e: MobileEdit): boolean {
       manage.renameCharacter(db, log, id, e.to)
       return true
     }
+    case 'trash':
+      return false // handled by applyMobileFiles (needs the host's recycle bin)
     case 'group': {
       const g = db.prepare('SELECT id FROM fav_groups WHERE name = ?').get(e.name) as { id: number } | undefined
       if (e.action === 'create') {
