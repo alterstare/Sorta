@@ -549,8 +549,7 @@ button:active {
   border-color: var(--accent);
 }
 .search-clear,
-.status-cancel,
-.toast-x {
+.status-cancel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -563,8 +562,7 @@ button:active {
   cursor: pointer;
 }
 .search-clear:hover,
-.status-cancel:hover,
-.toast-x:hover {
+.status-cancel:hover {
   background: var(--accent-hover);
 }
 .toolbar {
@@ -762,26 +760,32 @@ button:active {
   padding: 0 0 6px 12px;
 }
 
-/* ---------- toast ---------- */
+/* ---------- toast: bottom center, hugs its text, translucent theme veil ---------- */
 .toast {
   position: fixed;
-  right: 18px;
+  left: 0;
+  right: 0;
   bottom: 44px;
+  margin: 0 auto;
+  width: fit-content;
+  height: fit-content;
+  max-width: min(560px, calc(100% - 32px));
   z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 480px;
-  padding: 10px 10px 10px 14px;
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
-  border-radius: var(--r4);
-  background: var(--bg-1);
-  box-shadow: var(--shadow-subtle);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text);
   font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+:root[data-theme='dark'] .toast {
+  background: rgba(0, 0, 0, 0.7);
 }
 .toast.err {
-  border-left-color: var(--danger);
+  color: var(--danger);
 }
 /* Second toolbar row (view options): tighter, no top padding gap. */
 .toolbar.sub {
@@ -2017,7 +2021,6 @@ kbd {
 .picker-new input,
 .reset-btn,
 .status-cancel,
-.toast-x,
 .link-btn {
   border-radius: 999px;
 }
@@ -2034,14 +2037,24 @@ select.tag-input {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+/* thumb translucent like Halftone's: a solid token thumb vanished on panes
+   of the same colour */
+:root {
+  --scroll-thumb: rgba(0, 0, 0, 0.3);
+  --scroll-thumb-hover: rgba(0, 0, 0, 0.45);
+}
+:root[data-theme='dark'] {
+  --scroll-thumb: rgba(255, 255, 255, 0.28);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.42);
+}
 ::-webkit-scrollbar-thumb {
-  background-color: var(--bg-3);
+  background-color: var(--scroll-thumb);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--muted);
+  background-color: var(--scroll-thumb-hover);
 }
 
 /* Settings: section titles purple and larger. */
@@ -2489,6 +2502,154 @@ select.tag-input {
 /* the viewer is dark in both themes: unset stars must not look lit */
 .viewer-rate .star:not(.on) {
   color: rgba(255, 255, 255, 0.22);
+}
+/* …and its top bar hovers the dark theme's way (light mode's pale purple
+   fill read as white on the dark backdrop) */
+.viewer-top {
+  --accent-hover: #2f2750;
+  --text-hover: #ffffff;
+  --line: #2b3040;
+}
+/* favorite / group: round buttons, clear of the divider between them */
+.viewer-rate .seg-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50% !important;
+}
+.viewer-rate .seg-btn + .seg-btn {
+  margin-left: 11px;
+}
+.viewer-rate .seg-btn + .seg-btn::before {
+  left: -6px;
+  top: 7px;
+  bottom: 7px;
+}
+
+/* Field dropdowns (Combo.tsx): field + list one shape while open. */
+.combo {
+  position: relative;
+  display: inline-flex;
+  min-width: 220px;
+}
+.combo-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 6px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--bg-1);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease-out, border-radius 0.12s ease-out;
+}
+.combo-box:focus-within,
+button.combo-box:focus-visible,
+.combo.open .combo-box {
+  border-color: var(--accent);
+  outline: none;
+}
+.combo.open .combo-box {
+  border-radius: 15px 15px 0 0;
+  border-bottom-color: var(--line);
+}
+.combo-box input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.combo-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.combo-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.combo-arrow:hover {
+  background: var(--accent-hover);
+  color: var(--text-hover);
+}
+.combo .caret {
+  color: var(--text-dim);
+  font-size: 16px;
+  transition: transform 0.18s ease-out;
+}
+.combo .caret.up {
+  transform: rotate(180deg);
+}
+.combo-list {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--accent);
+  border-top: none;
+  border-radius: 0 0 15px 15px;
+  background: var(--bg-1);
+  box-shadow: var(--shadow-subtle);
+  animation: combo-drop 0.12s ease-out;
+}
+@keyframes combo-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.combo-opt {
+  flex: none;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--r3);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.combo-opt:hover,
+.combo-opt.sel {
+  background: var(--accent-hover);
+  color: var(--text-hover);
+}
+.combo-opt.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.org-bar .combo.org-game {
+  width: 220px;
+}
+.learn-row .combo.learn-game {
+  flex: 1;
 }
 
 /* 조직도: inputs stay inside their box; character chips centered. */
@@ -3338,4 +3499,25 @@ select.tag-input {
   flex-direction: column;
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Themed hover tooltip (Tooltip.tsx — Halftone's, replaces the native white
+   title bubble) */
+.tooltip {
+  position: fixed;
+  z-index: 9999;
+  width: max-content;
+  max-width: 280px;
+  word-break: keep-all;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-subtle);
+  pointer-events: none;
+  white-space: normal;
+  overflow-wrap: break-word;
 }

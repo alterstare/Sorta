@@ -5,7 +5,7 @@ import logo from './assets/logo.png'
 import type { JSX } from 'react'
 import { useStore } from './store'
 import type { View } from './store'
-import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon, CloseIcon } from './components/icons'
+import { PhotoLibraryIcon, FactCheckIcon, HelpIcon, PersonIcon, SettingsIcon } from './components/icons'
 import Library from './components/Library'
 import UnknownView from './components/UnknownView'
 import ManageView from './components/ManageView'
@@ -80,7 +80,7 @@ export default function App(): JSX.Element | null {
 }
 
 function Main(): JSX.Element {
-  const { view, setView, load, onProgress, refreshLibrary, refreshModels, toast, dismissToast } = useStore()
+  const { view, setView, load, onProgress, refreshLibrary, refreshModels, toast } = useStore()
 
   useEffect(() => {
     void load()
@@ -104,9 +104,11 @@ function Main(): JSX.Element {
   const reviewCount = (counts?.pending ?? 0) + (counts?.ratingReview ?? 0)
 
   // Anywhere (outside text fields): Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo.
-  // Mouse side buttons: back = undo, forward = redo.
+  // Mouse side buttons: previous / next screen only (never undo).
   const undo = useStore((s) => s.undo)
   const redo = useStore((s) => s.redo)
+  const goBack = useStore((s) => s.goBack)
+  const goForward = useStore((s) => s.goForward)
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement
@@ -126,8 +128,8 @@ function Main(): JSX.Element {
       if (e.button === 3 || e.button === 4) e.preventDefault()
     }
     const onMouse = (e: MouseEvent): void => {
-      if (e.button === 3) (e.preventDefault(), void undo())
-      else if (e.button === 4) (e.preventDefault(), void redo())
+      if (e.button === 3) (e.preventDefault(), goBack())
+      else if (e.button === 4) (e.preventDefault(), goForward())
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('mousedown', block)
@@ -137,7 +139,7 @@ function Main(): JSX.Element {
       window.removeEventListener('mousedown', block)
       window.removeEventListener('mouseup', onMouse)
     }
-  }, [undo, redo])
+  }, [undo, redo, goBack, goForward])
 
   // Inside Halftone: its tab-bar settings button opens Sorta's settings.
   useEffect(() => onHostSettings(() => setView('settings')), [setView])
@@ -189,12 +191,7 @@ function Main(): JSX.Element {
       <TrashDialog />
       <GroupShotDialog />
       {toast && (
-        <div className={`toast ${toast.ok ? '' : 'err'}`}>
-          <span>{toast.message}</span>
-          <button className="toast-x" title="닫기" onClick={dismissToast}>
-            <CloseIcon />
-          </button>
-        </div>
+        <div className={`toast ${toast.ok ? '' : 'err'}`}>{toast.message}</div>
       )}
     </div>
   )
