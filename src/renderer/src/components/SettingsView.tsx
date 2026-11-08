@@ -5,7 +5,7 @@ import { blocking, useStore } from '../store'
 import { useKeptScroll } from '../keep'
 import { embedded } from '../embed'
 import type { AssistMode, ModelId, Thresholds } from '../../../shared/types'
-import { AddIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, LanIcon, PlayIcon, RestartIcon, SaveAltIcon } from './icons'
+import { AddIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, LanIcon, PlayIcon, RestartIcon, SaveAltIcon, SyncIcon } from './icons'
 import Stepper from './Stepper'
 import OrganizeCard from './OrganizeCard'
 import NasDialog from './NasDialog'
@@ -74,7 +74,7 @@ export default function SettingsView(): JSX.Element {
   const clearPendingNav = useStore((s) => s.clearPendingNav)
   const setView = useStore((s) => s.setView)
   const prevView = useStore((s) => s.prevView)
-  const [busy, setBusy] = useState<'import' | 'classify' | 'model' | null>(null)
+  const [busy, setBusy] = useState<'import' | 'classify' | 'model' | 'refresh' | null>(null)
   const [newTag, setNewTag] = useState('')
   // NAS (SMB) dialog: which folder it adds to
   const [nas, setNas] = useState<'source' | 'organize' | null>(null)
@@ -101,7 +101,7 @@ export default function SettingsView(): JSX.Element {
     if (to) setView(to)
   }
 
-  const run = async (kind: 'import' | 'classify' | 'model', fn: () => Promise<{ ok: boolean; message: string }>): Promise<void> => {
+  const run = async (kind: 'import' | 'classify' | 'model' | 'refresh', fn: () => Promise<{ ok: boolean; message: string }>): Promise<void> => {
     setBusy(kind)
     try {
       showToast(await fn())
@@ -194,6 +194,22 @@ export default function SettingsView(): JSX.Element {
             <button className="mini" onClick={() => setNas('organize')}>
               <LanIcon />
               NAS (SMB)
+            </button>
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">라이브러리 갱신</div>
+            <div className="row-desc">폴더를 다시 읽어 새 그림을 가져오고, 폴더에서 지운 그림은 라이브러리에서도 뺍니다. 연결되지 않은 폴더(NAS · 외장 디스크)의 그림은 남깁니다.</div>
+          </div>
+          <div className="flat-group">
+            <button
+              className="mini"
+              disabled={(!settings.sourceDirs.length && !settings.organizeDir) || running || busy !== null}
+              onClick={() => void run('refresh', () => window.api.refreshLibrary())}
+            >
+              <SyncIcon />
+              라이브러리 갱신
             </button>
           </div>
         </div>
