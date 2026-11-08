@@ -9,7 +9,8 @@
 // classification — only a lost path is pointed at the file's location. The
 // whole restore is one undo step. A manual .sortapack export with pictures
 // restores the same way (relative to my organize folder).
-import { existsSync, promises as fsp } from 'fs'
+import { existsSync, mkdirSync, promises as fsp, renameSync, writeFileSync } from 'fs'
+import { gzipSync } from 'zlib'
 import { dirname, join } from 'path'
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
@@ -25,6 +26,21 @@ export const LIB_FILE = 'library.sortapack'
 export const RESTORE_ACTION = 'library.restore'
 
 export const libFilePath = (root: string): string => join(root, LIB_DIR, LIB_FILE)
+
+// 폰용 분류 정보 (<정리 폴더>/.sorta/mobile.sortapack): the same pack without
+// what only a PC uses — stored tagger scores (re-deciding after a threshold
+// change; Camie alone can be ~1MB a picture) and 학습 데이터 (feature vectors,
+// learned references). Sorta 모바일 reads this one first, so it downloads
+// a fraction of the bytes. Never read back by the PC.
+export const MOBILE_FILE = 'mobile.sortapack'
+export const mobileFilePath = (root: string): string => join(root, LIB_DIR, MOBILE_FILE)
+export function mobilePack(p: Pack): Pack {
+  return {
+    ...p,
+    series: p.series.map((s) => ({ ...s, characters: s.characters.map(({ learned: _, ...c }) => c) })),
+    files: p.files?.map(({ emb: _e, refs: _r, ...f }) => ({ ...f, tags: null }))
+  }
+}
 
 export interface RestoreResult {
   added: number // pictures registered from the file
@@ -241,10 +257,23 @@ export async function syncThumbs(root: string, thumbs: { sha: string; path: stri
 
 // The organize folder's file, written next to the pictures. tmp → rename, so
 // a crash mid-write keeps the previous file.
-export async function writeLibFile(root: string, buf: Buffer): Promise<void> {
-  const file = libFilePath(root)
-  await fsp.mkdir(dirname(file), { recursive: true })
-  const tmp = file + '.tmp'
-  await fsp.writeFile(tmp, buf)
-  await fsp.rename(tmp, file)
+export async function writeLibFile(root: string, p: Pack): Promise<void> {
+  for (const [file, data] of packFiles(root, p)) {
+    await fsp.mkdir(dirname(file), { recursive: true })
+    const tmp = file + '.tmp'
+    await fsp.writeFile(tmp, data)
+    await fsp.rename(tmp, file)
+  }
 }
+// On quit (no await possible).
+export function writeLibFileSync(root: string, p: Pack): void {
+  for (const [file, data] of packFiles(root, p)) {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file + '.tmp', data)
+    renameSync(file + '.tmp', file)
+  }
+}
+const packFiles = (root: string, p: Pack): [string, Buffer][] => [
+  [libFilePath(root), gzipSync(Buffer.from(JSON.stringify(p)))],
+  [mobileFilePath(root), gzipSync(Buffer.from(JSON.stringify(mobilePack(p))))]
+]

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import { gunzipSync } from 'zlib'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import sharp from 'sharp'
 import { SortaCore } from '../src/core'
 import { MockTagger } from '../src/core/ml/mock'
 import type { TagResult } from '../src/core/ml/types'
-import { libFilePath } from '../src/core/libfile'
+import { libFilePath, mobileFilePath } from '../src/core/libfile'
 import type { LibraryFilter } from '../src/shared/types'
 
 let dir: string
@@ -73,6 +74,14 @@ describe('분류 정보 파일', () => {
     expect(a.libFileDirty()).toBe(false)
     expect(existsSync(libFilePath(out))).toBe(true)
     expect(await a.pendingLibFile()).toBeNull() // my own file
+    // 폰용: same pictures and statuses, no tagger scores / 학습 데이터
+    const read = (f: string) => JSON.parse(gunzipSync(readFileSync(f)).toString('utf8'))
+    const full = read(libFilePath(out))
+    const lite = read(mobileFilePath(out))
+    expect(lite.files.map((f: { sha: string }) => f.sha)).toEqual(full.files.map((f: { sha: string }) => f.sha))
+    expect(lite.files.map((f: { chars: unknown }) => f.chars)).toEqual(full.files.map((f: { chars: unknown }) => f.chars))
+    expect(full.files.some((f: { tags: unknown }) => f.tags)).toBe(true)
+    expect(lite.files.every((f: { tags: unknown; emb?: unknown }) => f.tags === null && f.emb === undefined)).toBe(true)
     a.close()
 
     // another PC / reinstall: empty data folder, same organize folder

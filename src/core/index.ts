@@ -1,7 +1,7 @@
 // Sorta engine entry. Pure Node (no Electron imports) so the standalone app,
 // Halftone and the tests all drive the same code.
-import { existsSync, mkdirSync, promises as fsp, renameSync, writeFileSync } from 'fs'
-import { dirname, join } from 'path'
+import { existsSync, mkdirSync, promises as fsp } from 'fs'
+import { join } from 'path'
 import type {
   CharacterHit,
   ClusterResult,
@@ -47,7 +47,6 @@ import * as libfile from './libfile'
 import * as mobile from './mobile'
 import type { MobileResult } from './mobile'
 import type { RestoreResult } from './libfile'
-import { gzipSync } from 'zlib'
 import type { GrayLoader } from './dupes'
 import * as review from './review'
 import * as organize from './organize'
@@ -681,7 +680,7 @@ export class SortaCore {
     const s = this.settings()
     if (!s.organizeDir || !s.libraryFile || !existsSync(s.organizeDir)) return false
     const p = this.libPack(appVersion)
-    await libfile.writeLibFile(s.organizeDir, gzipSync(Buffer.from(JSON.stringify(p))))
+    await libfile.writeLibFile(s.organizeDir, p)
     this.stampLibFile(s.organizeDir, p.createdAt)
     if (s.libraryFileThumbs) {
       const shas = new Set((p.files ?? []).map((f) => f.sha))
@@ -699,10 +698,7 @@ export class SortaCore {
     const s = this.settings()
     if (!existsSync(s.organizeDir)) return
     const p = this.libPack(appVersion)
-    const file = libfile.libFilePath(s.organizeDir)
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file + '.tmp', gzipSync(Buffer.from(JSON.stringify(p))))
-    renameSync(file + '.tmp', file)
+    libfile.writeLibFileSync(s.organizeDir, p)
     this.stampLibFile(s.organizeDir, p.createdAt)
   }
 
