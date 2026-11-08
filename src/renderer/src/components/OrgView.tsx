@@ -10,6 +10,7 @@ import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { WikiRow } from '../store'
 import type { OrgChart, OrgCharacter, OrgNode, WikiSuggestion } from '../../../shared/types'
+import { Select } from './Combo'
 import { AddIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon, OpenInNewIcon, PersonIcon, SearchIcon } from './icons'
 
 type Drag = { kind: 'aff'; id: number } | { kind: 'chars'; ids: number[] }
@@ -191,13 +192,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
       </p>
 
       <div className="org-bar">
-        <select className="tag-input" value={game} onChange={(e) => setGame(e.target.value)}>
-          {games.map((g) => (
-            <option key={g.name} value={g.name}>
-              {g.name} ({g.n}명)
-            </option>
-          ))}
-        </select>
+        <Select className="org-game" value={game} options={games.map((g) => [g.name, `${g.name} (${g.n}명)`] as const)} onChange={setGame} />
         <input
           className="tag-input org-wiki"
           value={wiki}

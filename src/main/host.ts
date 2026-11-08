@@ -479,7 +479,7 @@ function registerIpc(): void {
     clipboard.writeImage(img)
     return true
   })
-  ipcMain.handle(IPC.images, (_e, f: LibraryFilter) => core.images(f))
+  ipcMain.handle(IPC.images, (_e, f: LibraryFilter) => core.libraryImages(f))
   ipcMain.handle(IPC.showInFolder, (_e, p: string) => shell.showItemInFolder(p))
   // Edits: each refreshes the library views. Those that change the
   // references (confirmed characters, merges) also re-compare the library.

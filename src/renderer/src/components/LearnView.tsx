@@ -7,6 +7,7 @@ import type { JSX, ReactNode } from 'react'
 import { blocking, useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { GameOption, LearnedCharacter, LearnPlanInfo } from '../../../shared/types'
+import { ComboInput } from './Combo'
 import { CheckIcon, DeleteIcon, DownloadIcon, PlayIcon, RestartIcon, SearchIcon } from './icons'
 
 export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
@@ -121,19 +122,14 @@ export default function LearnView({ tabs }: { tabs?: ReactNode }): JSX.Element {
           나오면 다시 누르세요 — 추가된 캐릭터만 학습합니다.
         </div>
         <div className="learn-row">
-          <input
-            className="tag-input"
-            list="sorta-games"
+          <ComboInput
+            className="learn-game"
             value={game}
+            options={games.map((g) => g.name)}
             placeholder="게임 (예: Blue Archive)"
-            onChange={(e) => (setGame(e.target.value), setPlan(null))}
-            onKeyDown={(e) => e.key === 'Enter' && ready && void makePlan()}
+            onChange={(v) => (setGame(v), setPlan(null))}
+            onEnter={() => ready && game.trim() && void makePlan()}
           />
-          <datalist id="sorta-games">
-            {games.map((g) => (
-              <option key={g.tag} value={g.name} />
-            ))}
-          </datalist>
           <div className="flat-group">
             <button className="mini" disabled={!ready || !game.trim() || planning} onClick={() => void makePlan()}>
               <SearchIcon />

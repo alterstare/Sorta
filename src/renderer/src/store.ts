@@ -70,6 +70,11 @@ interface State {
   undo: () => Promise<void>
   redo: () => Promise<void>
   setView: (v: View) => void
+  // Screen history for the mouse side buttons (back / forward).
+  navBack: View[]
+  navFwd: View[]
+  goBack: () => void
+  goForward: () => void
   prevView: View // where 설정's 취소 goes back to
   // 설정 화면: edits stay a draft until 저장 (null = nothing changed). Leaving
   // with unsaved edits stops at `pendingNav` (save / discard / stay).
@@ -171,7 +176,43 @@ export const useStore = create<State>((set, get) => ({
     const s = get()
     if (view === s.view) return
     if (s.view === 'settings' && settingsChanges(s).length) return set({ pendingNav: view })
-    set({ view, prevView: s.view, settingsDraft: s.view === 'settings' ? null : s.settingsDraft })
+    set({
+      view,
+      prevView: s.view,
+      settingsDraft: s.view === 'settings' ? null : s.settingsDraft,
+      navBack: [...s.navBack, s.view].slice(-50),
+      navFwd: []
+    })
+  },
+  navBack: [],
+  navFwd: [],
+  goBack: () => {
+    const s = get()
+    // 크게 보기 open: back closes it first (it is a screen of its own)
+    if (s.viewerIndex !== null) return set({ viewerIndex: null })
+    const to = s.navBack[s.navBack.length - 1]
+    if (!to) return
+    if (s.view === 'settings' && settingsChanges(s).length) return set({ pendingNav: to })
+    set({
+      view: to,
+      prevView: s.view,
+      settingsDraft: s.view === 'settings' ? null : s.settingsDraft,
+      navBack: s.navBack.slice(0, -1),
+      navFwd: [...s.navFwd, s.view]
+    })
+  },
+  goForward: () => {
+    const s = get()
+    const to = s.navFwd[s.navFwd.length - 1]
+    if (!to) return
+    if (s.view === 'settings' && settingsChanges(s).length) return set({ pendingNav: to })
+    set({
+      view: to,
+      prevView: s.view,
+      settingsDraft: s.view === 'settings' ? null : s.settingsDraft,
+      navBack: [...s.navBack, s.view],
+      navFwd: s.navFwd.slice(0, -1)
+    })
   },
   prevView: 'library',
   settingsDraft: null,

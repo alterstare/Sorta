@@ -27,7 +27,6 @@ import type { ThumbSize } from './ThumbGrid'
 import Viewer from './Viewer'
 import SelectionBar from './SelectionBar'
 import DropMenu, { MenuOption, MenuSection } from './DropMenu'
-import DupView from './DupView'
 import Setup from './Setup'
 import { embedded } from '../embed'
 
@@ -287,9 +286,7 @@ export default function Library(): JSX.Element {
           <span className="tb-count">{items.length.toLocaleString()}장</span>
         </div>
         <SelectionBar allIds={items.map((i) => i.id)} />
-        {filter.node.type === 'dups' ? (
-          <DupView />
-        ) : empty ? (
+        {empty ? (
           <div className="grid">
             <div className="empty">
               <FolderOpenIcon />

@@ -7,6 +7,7 @@ import { useStore } from '../store'
 import { useKept } from '../keep'
 import type { Rating, ReviewItem, ReviewKind } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
+import DupView from './DupView'
 import type { PickedCharacter } from './CharacterPicker'
 import { CheckIcon, CloseIcon, GroupsIcon, ImageSearchIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon, PersonOffIcon, SkipNextIcon, UndoIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
@@ -34,6 +35,8 @@ export default function Review(): JSX.Element {
   }
   const libraryVersion = useStore((s) => s.libraryVersion)
   const [kind, setKind] = useKept<ReviewKind>('review.kind', 'character')
+  // 중복 확인: the similar-picture groups (same screen as the tree's 중복 의심)
+  const [dups, setDups] = useKept('review.dups', false)
   const [items, setItems] = useKept<ReviewItem[]>('review.items', [])
   const [index, setIndex] = useKept('review.index', 0)
   // Choices for the shown image survive leaving the view (reset only when
@@ -124,7 +127,7 @@ export default function Review(): JSX.Element {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.ctrlKey || e.metaKey || e.altKey || dups) return
       const t = e.target as HTMLElement
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
       const k = e.key.toLowerCase()
@@ -180,26 +183,33 @@ export default function Review(): JSX.Element {
     <div className="review">
       <div className="review-head">
         <div className="flat-group">
-          <button className={`mini ${kind === 'character' ? 'on' : ''}`} onClick={() => (setKind('character'), setIndex(0))}>
+          <button className={`mini ${!dups && kind === 'character' ? 'on' : ''}`} onClick={() => (setDups(false), setKind('character'), setIndex(0))}>
             캐릭터 검토 {counts?.pending ?? 0}
           </button>
-          <button className={`mini ${kind === 'rating' ? 'on' : ''}`} onClick={() => (setKind('rating'), setIndex(0))}>
+          <button className={`mini ${!dups && kind === 'rating' ? 'on' : ''}`} onClick={() => (setDups(false), setKind('rating'), setIndex(0))}>
             등급 확인 {counts?.ratingReview ?? 0}
           </button>
+          <button className={`mini ${dups ? 'on' : ''}`} onClick={() => setDups(true)}>
+            중복 확인{typeof tree?.dups === 'number' ? ` ${tree.dups}` : ''}
+          </button>
         </div>
-        {item && (
+        {item && !dups && (
           <span className="review-pos">
             {Math.min(index, items.length - 1) + 1} / {items.length}
           </span>
         )}
         <span className="review-keys">
-          {kind === 'character'
+          {dups
+            ? '남길 그림을 고르고 나머지 따로 두기 · 다른 그림이면 다른 그림으로 표시 · Ctrl+Z 되돌리기'
+            : kind === 'character'
             ? '1·2·3 고르기 · Enter 확정 · 0 추가 없이 확정 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · G 단체 사진 · X 캐릭터 아닌 그림 · R 등급 · Ctrl+Z 되돌리기'
             : '1·2·3 등급 고르기 · Enter 확정 · S 건너뛰기 · Ctrl+Z 되돌리기'}
         </span>
       </div>
 
-      {!item ? (
+      {dups ? (
+        <DupView />
+      ) : !item ? (
         <div className="empty">
           <CheckIcon />
           <p>{kind === 'character' ? '검토할 캐릭터가 없습니다.' : '확인할 등급이 없습니다.'}</p>

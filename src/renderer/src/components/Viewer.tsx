@@ -139,9 +139,8 @@ export default function Viewer({ items }: { items: ImageItem[] }): JSX.Element |
               {Math.round(zoom.z * 100)}%
             </button>
           )}
-          <button className="mini" onClick={() => void window.api.showInFolder(img.path)}>
+          <button className="mini icon" title="폴더에서 보기" onClick={() => void window.api.showInFolder(img.path)}>
             <FolderOpenIcon />
-            폴더에서 보기
           </button>
           <button className="mini icon" title="닫기 (Esc)" onClick={() => open(null)}>
             <CloseIcon />

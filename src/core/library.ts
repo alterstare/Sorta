@@ -213,7 +213,8 @@ const extOf = (p: string): string => {
 }
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
-export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
+// `dupIds`: the images in near-duplicate groups (the 중복 의심 node).
+export function listImages(db: Db, f: LibraryFilter, dupIds: number[] = []): ImageItem[] {
   const where: string[] = []
   const params: Record<string, unknown> = {}
   const n = f.node
@@ -250,6 +251,7 @@ export function listImages(db: Db, f: LibraryFilter): ImageItem[] {
     if (n.id !== undefined) params.nid = n.id
   }
   else if (n.type === 'unclassified') where.push('i.classified_at IS NULL')
+  else if (n.type === 'dups') where.push(dupIds.length ? `i.id IN (${dupIds.map(Number).join(',')})` : '0')
   where.push(n.type === 'setAside' ? 'i.set_aside = 1' : 'i.set_aside = 0')
   if (f.favOnly) where.push('i.favorite = 1')
   const rc = filterClause(f.ratings, f.groups)

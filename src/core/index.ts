@@ -799,8 +799,13 @@ export class SortaCore {
     collect.setGroupMembership(this.db, this.log, ids, groupId, on)
   }
 
-  images(f: LibraryFilter): ImageItem[] {
-    return listImages(this.db, f)
+  images(f: LibraryFilter, dupIds: number[] = []): ImageItem[] {
+    return listImages(this.db, f, dupIds)
+  }
+  // The library grid: the 중복 의심 node waits for the duplicate check.
+  async libraryImages(f: LibraryFilter): Promise<ImageItem[]> {
+    const dupIds = f.node.type === 'dups' ? (await this.duplicates()).flatMap((g) => g.images.map((i) => i.id)) : []
+    return this.images(f, dupIds)
   }
 
   close(): void {
