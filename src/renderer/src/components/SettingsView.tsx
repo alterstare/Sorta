@@ -184,7 +184,6 @@ export default function SettingsView(): JSX.Element {
           <div className="row-text">
             <div className="row-title">정리 폴더</div>
             <div className="row-desc">분류가 끝난 원본을 게임 · 캐릭터 폴더로 옮겨 정리합니다. 가져오기 대상에서 제외됩니다.</div>
-            {cur.organizeDir && <div className="row-desc selectable">{cur.organizeDir}</div>}
           </div>
           <div className="flat-group">
             <button className="mini" onClick={() => void pickOrganize()}>
@@ -197,6 +196,22 @@ export default function SettingsView(): JSX.Element {
             </button>
           </div>
         </div>
+        {!cur.organizeDir && <div className="row-desc pad">정한 폴더가 없습니다.</div>}
+        {cur.organizeDir && (
+          <div className="path-row">
+            <span className="path selectable">{cur.organizeDir}</span>
+            <div className="flat-group">
+              <button className="mini" onClick={() => void window.api.showInFolder(cur.organizeDir)}>
+                <FolderOpenIcon />
+                열기
+              </button>
+              <button className="mini danger" onClick={() => edit({ organizeDir: '' })}>
+                <DeleteIcon />
+                제거
+              </button>
+            </div>
+          </div>
+        )}
         <div className="row">
           <div className="row-text">
             <div className="row-title">라이브러리 갱신</div>
