@@ -76,6 +76,8 @@ export const IPC = {
   undo: 'sorta:review:undo',
   imageSearch: 'sorta:review:imageSearch',
   trash: 'sorta:library:trash',
+  sourceCount: 'sorta:library:sourceCount',
+  removeSource: 'sorta:library:removeSource',
   redo: 'sorta:review:redo',
   toast: 'sorta:app:toast',
   updateStatus: 'sorta:update:status',
@@ -185,6 +187,8 @@ export interface Api {
   undo: () => Promise<UndoResult>
   imageSearch: (path: string) => Promise<void> // 구글 렌즈 window (needs allowImageSearch)
   trash: (ids: number[]) => Promise<JobSummary> // 삭제 → OS recycle bin
+  sourceCount: (dir: string) => Promise<number> // pictures removing the source folder takes out
+  removeSource: (dir: string) => Promise<JobSummary> // those pictures leave the library (files untouched)
   redo: () => Promise<UndoResult> // what the last undo reverted, put back
   onToast: (cb: (t: JobSummary) => void) => () => void
   // 자동 업데이트 (packaged builds; GitHub Releases)

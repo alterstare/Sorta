@@ -60,3 +60,13 @@ export async function trashImages(
   }
   return { trashed, failed }
 }
+
+// 원본 폴더 제거: pictures still inside the folder leave the library (files
+// untouched). Those already moved into the organize folder, or also inside
+// another registered source folder, stay.
+export function sourceImageIds(db: Db, dir: string, keep: string[]): number[] {
+  const rows = db.prepare('SELECT id, path FROM images').all() as { id: number; path: string }[]
+  return rows
+    .filter((r) => isInside(r.path, dir) && !keep.some((k) => k && isInside(r.path, k)))
+    .map((r) => r.id)
+}

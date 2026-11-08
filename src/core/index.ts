@@ -59,7 +59,7 @@ import type { JsonGet } from './pipeline/wiki'
 import * as booru from './pipeline/booru'
 import { stopTunnel } from './pipeline/booruNet'
 import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
-import { trashFor, trashImages } from './trash'
+import { sourceImageIds, trashFor, trashImages } from './trash'
 import type { TrashFn } from './trash'
 import type { LearnModels } from './pipeline/knn'
 import { displayName } from './pipeline/tags'
@@ -761,6 +761,16 @@ export class SortaCore {
   runTrash(ids: number[], trash: TrashFn): { id: number; done: Promise<{ trashed: number; failed: string[] }> } {
     const fn = trashFor(this.settings().organizeDir, trash)
     return this.queue.add('삭제', () => trashImages(this.db, ids, fn, this.paths.thumbsDir))
+  }
+
+  // Pictures in a source folder that removing it takes out of the library.
+  sourceImages(dir: string): number[] {
+    const s = this.settings()
+    return sourceImageIds(this.db, dir, [s.organizeDir, ...s.sourceDirs.filter((d) => d !== dir)])
+  }
+  // Library rows only — the files stay where they are.
+  runRemoveSource(dir: string): { id: number; done: Promise<{ trashed: number; failed: string[] }> } {
+    return this.queue.add('원본 폴더 제거', () => trashImages(this.db, this.sourceImages(dir), async () => {}, this.paths.thumbsDir))
   }
 
   runSetAside(ids: number[]): { id: number; done: Promise<{ moved: number; failed: string[] }> } {

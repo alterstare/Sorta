@@ -234,6 +234,7 @@ settings      (key, value_json)
 
 ### Settings (설정)
 - 원본 폴더 · 정리 폴더는 NAS(SMB)도 추가 가능 (Halftone과 같은 방식: `src/core/smb.ts`, 계정은 윈도우 자격 증명, 폴더는 UNC 경로 — sorta-img는 UNC를 직접 읽음).
+- 원본 폴더 제거: 그 폴더 안 그림이 있으면 확인 창 뒤에 라이브러리에서 뺀다(행 · 썸네일 · 분류 정보, 파일은 그대로). 정리 폴더로 옮긴 그림과 다른 원본 폴더에도 속한 그림은 남는다. 초안이 아니라 바로 저장.
 - 원본 폴더, 감시 여부, 정리 폴더, 이동 시점(자동 확정 포함 여부), 등급별 폴더 분리, `group_threshold`.
 - 임계값(`auto_accept`, `review_min`, `candidate_min`, `margin`, 등급 임계값·여유), 안전 모드 기본값.
 - 모델 받기/삭제, GPU 사용 여부, 모델 선택.

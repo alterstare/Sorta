@@ -457,6 +457,14 @@ function registerIpc(): void {
     learnRefreshSoon() // confirmed pictures may be gone → references change
     return r
   })
+  ipcMain.handle(IPC.sourceCount, (_e, dir: string) => core.sourceImages(dir).length)
+  ipcMain.handle(IPC.removeSource, async (_e, dir: string) => {
+    const r = await summarize(core.runRemoveSource(dir).done, (x) =>
+      `라이브러리에서 ${x.trashed}장을 뺐습니다${x.failed.length ? ` · ${x.failed.length}장 실패` : ''}`
+    )
+    learnRefreshSoon() // confirmed pictures may be gone → references change
+    return r
+  })
   ipcMain.handle(IPC.imageSearch, (_e, p: string) => imageSearch(p))
   ipcMain.handle(IPC.setAside, (_e, ids: number[]) =>
     summarize(core.runSetAside(ids).done, (r) => `${r.moved}장을 정리 폴더의 "중복" 폴더로 옮겼습니다${r.failed.length ? ` · ${r.failed.length}장 실패` : ''} · Ctrl+Z로 되돌리기`)

@@ -78,6 +78,9 @@ export default function SettingsView(): JSX.Element {
   const [newTag, setNewTag] = useState('')
   // NAS (SMB) dialog: which folder it adds to
   const [nas, setNas] = useState<'source' | 'organize' | null>(null)
+  // 원본 폴더 제거 confirm: the folder and how many pictures leave the library
+  const [removing, setRemoving] = useState<{ dir: string; count: number; busy?: boolean } | null>(null)
+  const saveSettings = useStore((s) => s.saveSettings)
   if (!settings) return <div className="page" />
   const cur = draft ?? settings
   const tagger = models.find((m) => m.id === 'wd')
@@ -111,6 +114,25 @@ export default function SettingsView(): JSX.Element {
   const addSource = async (): Promise<void> => {
     const dir = await window.api.pickFolder()
     if (dir && !cur.sourceDirs.includes(dir)) edit({ sourceDirs: [...cur.sourceDirs, dir] })
+  }
+  // A saved folder with pictures asks first; removing it takes them out of the
+  // library right away (saved at once, not part of the draft).
+  const removeSource = async (dir: string): Promise<void> => {
+    const count = settings.sourceDirs.includes(dir) ? await window.api.sourceCount(dir) : 0
+    if (count) setRemoving({ dir, count })
+    else edit({ sourceDirs: cur.sourceDirs.filter((x) => x !== dir) })
+  }
+  const confirmRemove = async (): Promise<void> => {
+    if (!removing) return
+    const { dir } = removing
+    setRemoving({ ...removing, busy: true })
+    const r = await window.api.removeSource(dir)
+    await saveSettings({ sourceDirs: settings.sourceDirs.filter((x) => x !== dir) })
+    const d = useStore.getState().settingsDraft
+    if (d) edit({ sourceDirs: d.sourceDirs.filter((x) => x !== dir) })
+    setRemoving(null)
+    showToast(r)
+    void refreshLibrary()
   }
   const pickOrganize = async (): Promise<void> => {
     const dir = await window.api.pickFolder()
@@ -150,11 +172,7 @@ export default function SettingsView(): JSX.Element {
               </button>
               <button
                 className="mini danger"
-                onClick={() =>
-                  edit({
-                    sourceDirs: cur.sourceDirs.filter((x) => x !== d)
-                  })
-                }
+                onClick={() => void removeSource(d)}
               >
                 <DeleteIcon />
                 제거
@@ -697,6 +715,34 @@ export default function SettingsView(): JSX.Element {
         </button>
       </div>
       <div className="version">Sorta v{info?.version}</div>
+      {removing && (
+        <div className="modal-back" onMouseDown={() => !removing.busy && setRemoving(null)}>
+          <div className="modal small" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>원본 폴더 제거</h2>
+            </div>
+            <div className="row-desc">
+              <span className="selectable">{removing.dir}</span>
+              <br />이 폴더의 그림 {removing.count}장도 라이브러리에서 뺍니다. 분류 · 확정 정보도 함께 지워지고, 원본 파일은 그대로 둡니다. 정리 폴더로 옮겨진 그림은 남습니다.
+            </div>
+            <div className="modal-foot">
+              <button className="btn" disabled={removing.busy} onClick={() => setRemoving(null)}>
+                취소
+              </button>
+              <button
+                className="btn danger"
+                autoFocus
+                disabled={removing.busy}
+                onClick={() => void confirmRemove()}
+                onKeyDown={(e) => e.key === 'Escape' && setRemoving(null)}
+              >
+                <DeleteIcon />
+                제거
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {nas && (
         <NasDialog
           onClose={() => setNas(null)}

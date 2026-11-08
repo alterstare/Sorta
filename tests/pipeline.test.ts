@@ -162,6 +162,24 @@ describe('import + classify', () => {
     core.close()
   })
 
+  it('removing a source folder takes its pictures out of the library, files stay', async () => {
+    const core = new SortaCore(join(dir, 'data'))
+    const other = join(dir, 'other')
+    mkdirSync(other)
+    core.saveSettings({ sourceDirs: [src, other], organizeDir: sorted })
+    await pattern(join(src, 'a.png'), 1)
+    await pattern(join(src, 'sub', 'b.png'), 5)
+    await pattern(join(other, 'c.png'), 9)
+    await core.runImport().done
+    expect(core.sourceImages(src)).toHaveLength(2)
+    const r = await core.runRemoveSource(src).done
+    expect(r.trashed).toBe(2)
+    expect(existsSync(join(src, 'a.png'))).toBe(true)
+    const left = core.images({ node: { type: 'all' }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' })
+    expect(left.map((i) => i.path)).toEqual([join(other, 'c.png')])
+    core.close()
+  })
+
   it('reports undecodable files without stopping', async () => {
     const core = new SortaCore(join(dir, 'data'))
     core.saveSettings({ sourceDirs: [src] })

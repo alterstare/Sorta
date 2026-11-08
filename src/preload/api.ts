@@ -70,6 +70,8 @@ export function createApi(ipcRenderer: IpcRenderer): Api {
     undo: () => invoke(IPC.undo),
     imageSearch: (p) => invoke(IPC.imageSearch, p),
     trash: (ids) => invoke(IPC.trash, ids),
+    sourceCount: (d) => invoke(IPC.sourceCount, d),
+    removeSource: (d) => invoke(IPC.removeSource, d),
     redo: () => invoke(IPC.redo),
     onToast: (cb) => on<JobSummary>(IPC.toast, cb),
     onUpdateStatus: (cb) => on<UpdateStatus>(IPC.updateStatus, cb),
