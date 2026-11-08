@@ -31,8 +31,16 @@ win:
   target:
     - nsis
     - zip
-  # Ship only this platform's onnxruntime binaries.
+  # Ship only this platform's onnxruntime binaries. A platform `files` list
+  # replaces the top-level one, so it repeats it (only `!` lines would pack the
+  # whole project).
   files:
+    - out/**/*
+    - package.json
+    - '!node_modules/better-sqlite3/deps/**'
+    - '!node_modules/better-sqlite3/src/**'
+    - '!node_modules/better-sqlite3/binding.gyp'
+    - LICENSE
     - '!node_modules/onnxruntime-node/bin/napi-v*/linux/**'
     - '!node_modules/onnxruntime-node/bin/napi-v*/darwin/**'
     - '!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**'
