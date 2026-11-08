@@ -36,6 +36,7 @@ export const IPC = {
   pickFolder: 'sorta:dialog:pickFolder',
   smbConnect: 'sorta:smb:connect',
   runImport: 'sorta:pipeline:import',
+  refreshLibrary: 'sorta:pipeline:refresh',
   runClassify: 'sorta:pipeline:classify',
   runAssist: 'sorta:pipeline:assist',
   reclassifyAll: 'sorta:pipeline:reclassifyAll',
@@ -139,6 +140,7 @@ export interface Api {
   smbConnect: (opts: { address: string; user?: string; password?: string }) => Promise<{ ok: boolean; path?: string; error?: string }>
   // Import, then classify when a model is installed.
   runImport: () => Promise<JobSummary>
+  refreshLibrary: () => Promise<JobSummary> // import + drop pictures whose file is gone
   runClassify: () => Promise<JobSummary>
   // Re-run the tagger on every image (user-confirmed results are kept).
   reclassifyAll: () => Promise<JobSummary>

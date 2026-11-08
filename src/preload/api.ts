@@ -29,6 +29,7 @@ export function createApi(ipcRenderer: IpcRenderer): Api {
     pickFolder: () => invoke(IPC.pickFolder),
     smbConnect: (o) => invoke(IPC.smbConnect, o),
     runImport: () => invoke(IPC.runImport),
+    refreshLibrary: () => invoke(IPC.refreshLibrary),
     runClassify: () => invoke(IPC.runClassify),
     reclassifyAll: () => invoke(IPC.reclassifyAll),
     models: () => invoke(IPC.models),

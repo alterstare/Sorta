@@ -283,6 +283,23 @@ async function importJob(): Promise<JobSummary> {
   return { ok: cls.ok, message: `${imp.message} · ${cls.message}` }
 }
 
+// 라이브러리 갱신: import (new files, moves inside the source folders →
+// classify), then drop pictures whose file is gone.
+async function refreshJob(): Promise<JobSummary> {
+  const imp = await importJob()
+  if (!imp.ok) return imp
+  const pr = await summarize(core.runPruneMissing().done, (r) => {
+    const parts: string[] = []
+    if (r.relinked) parts.push(`옮긴 그림 ${r.relinked}장 다시 연결`)
+    if (r.removed) parts.push(`없어진 그림 ${r.removed}장 정리`)
+    if (r.kept) parts.push(`연결되지 않은 폴더의 그림 ${r.kept}장 유지`)
+    return parts.join(', ')
+  })
+  if (!pr.ok) return pr
+  learnRefreshSoon() // confirmed pictures may be gone → references change
+  return { ok: true, message: [imp.message, pr.message].filter(Boolean).join(' · ') }
+}
+
 // 감시 폴더: new files in the source folders are imported (→ classify →
 // learned-character check → organized images follow). Bursts are coalesced.
 let watchers: FSWatcher[] = []
@@ -357,6 +374,7 @@ function registerIpc(): void {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle(IPC.runImport, () => importJob())
+  ipcMain.handle(IPC.refreshLibrary, () => refreshJob())
   ipcMain.handle(IPC.organizePlan, () => core.organizePlan())
   ipcMain.handle(IPC.organize, () =>
     summarize(core.runOrganize().done, (r) => `${r.moved}장 정리${r.failed.length ? `, ${r.failed.length}장 실패` : ''} · Ctrl+Z로 되돌리기`)

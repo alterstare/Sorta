@@ -180,6 +180,29 @@ describe('import + classify', () => {
     core.close()
   })
 
+  it('라이브러리 갱신: drops gone files, follows moves in the organize folder, keeps unreachable folders', async () => {
+    const core = new SortaCore(join(dir, 'data'))
+    const off = join(dir, 'unplugged')
+    core.saveSettings({ sourceDirs: [src, off], organizeDir: sorted })
+    await pattern(join(src, 'a.png'), 1)
+    await pattern(join(src, 'b.png'), 5)
+    await pattern(join(src, 'c.png'), 9)
+    await core.runImport().done
+    const id = (name: string): number => (core.db.prepare('SELECT id FROM images WHERE path LIKE ?').get(`%${name}`) as { id: number }).id
+    // b was organized, then the user moved it to another folder inside the organize folder
+    mkdirSync(join(sorted, 'x'))
+    renameSync(join(src, 'b.png'), join(sorted, 'x', 'b.png'))
+    core.db.prepare('UPDATE images SET path = ? WHERE id = ?').run(join(sorted, 'b.png'), id('b.png'))
+    // c lives in a source folder that isn't connected
+    core.db.prepare('UPDATE images SET path = ? WHERE id = ?').run(join(off, 'c.png'), id('c.png'))
+    rmSync(join(src, 'a.png'))
+    const r = await core.runPruneMissing().done
+    expect(r).toEqual({ relinked: 1, removed: 1, kept: 1 })
+    const paths = (core.db.prepare('SELECT path FROM images ORDER BY path').all() as { path: string }[]).map((x) => x.path)
+    expect(paths).toEqual([join(sorted, 'x', 'b.png'), join(off, 'c.png')].sort())
+    core.close()
+  })
+
   it('reports undecodable files without stopping', async () => {
     const core = new SortaCore(join(dir, 'data'))
     core.saveSettings({ sourceDirs: [src] })

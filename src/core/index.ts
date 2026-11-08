@@ -59,6 +59,8 @@ import * as booru from './pipeline/booru'
 import { stopTunnel } from './pipeline/booruNet'
 import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
 import { sourceImageIds, trashFor, trashImages } from './trash'
+import { pruneMissing } from './refresh'
+import type { RefreshResult } from './refresh'
 import type { TrashFn } from './trash'
 import type { LearnModels } from './pipeline/knn'
 import { displayName } from './pipeline/tags'
@@ -757,6 +759,15 @@ export class SortaCore {
   runTrash(ids: number[], trash: TrashFn): { id: number; done: Promise<{ trashed: number; failed: string[] }> } {
     const fn = trashFor(this.settings().organizeDir, trash)
     return this.queue.add('삭제', () => trashImages(this.db, ids, fn, this.paths.thumbsDir))
+  }
+
+  // 라이브러리 갱신 (after an import): pictures whose file is gone leave the
+  // library; files moved inside the organize folder are followed first.
+  runPruneMissing(): { id: number; done: Promise<RefreshResult> } {
+    return this.queue.add('라이브러리 갱신', (ctx) => {
+      const s = this.settings()
+      return pruneMissing(this.db, { roots: [...s.sourceDirs, s.organizeDir], organizeDir: s.organizeDir, thumbsDir: this.paths.thumbsDir }, ctx)
+    })
   }
 
   // Pictures in a source folder that removing it takes out of the library.

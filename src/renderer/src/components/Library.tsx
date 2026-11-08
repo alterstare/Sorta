@@ -16,6 +16,7 @@ import {
   ListIcon,
   PlayIcon,
   RefreshIcon,
+  SyncIcon,
   SettingsIcon,
   SortIcon,
   VisibilityIcon
@@ -136,6 +137,14 @@ export default function Library(): JSX.Element {
       setBusy(false)
     }
   }
+  const refresh = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      showToast(await window.api.refreshLibrary())
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const empty = tree && tree.counts.all === 0
   // 처음 쓸 때 (no model yet, or nothing imported and no folder): the setup steps.
@@ -157,6 +166,15 @@ export default function Library(): JSX.Element {
             >
               <PlayIcon />
               분류 실행
+            </button>
+            <button
+              className="mini"
+              disabled={busy || running || (!settings?.sourceDirs.length && !settings?.organizeDir)}
+              title="폴더를 다시 읽어 새 그림을 가져오고, 폴더에서 지운 그림은 라이브러리에서도 뺍니다"
+              onClick={() => void refresh()}
+            >
+              <SyncIcon />
+              라이브러리 갱신
             </button>
             <button
               className="mini"
