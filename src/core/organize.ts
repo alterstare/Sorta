@@ -6,7 +6,8 @@
 //   <정리 폴더>/[등급/]게임/단체/              several, same game (mixed / many)
 //   <정리 폴더>/[등급/]단체/                   several games, or a 단체 사진 without a game
 //   (a 단체 사진 of one game goes to 게임/단체/)
-//   <정리 폴더>/[등급/]기타/                   캐릭터 아닌 그림
+//   <정리 폴더>/[등급/]오리지널/               오리지널 (original character)
+//   <정리 폴더>/[등급/]기타/                   기타 (scenery, no people)
 // Only moves — file contents are never touched, nothing is deleted. A run is
 // one undo step; images already organized follow later classification changes.
 import { promises as fs, existsSync } from 'fs'
@@ -20,6 +21,7 @@ import type { OrganizeMove, OrganizePlan, Rating, Settings } from '../shared/typ
 const RATING_DIR: Record<Rating, string> = { general: '일반', sensitive: '민감', r18: 'R-18', unknown: '미정' }
 export const GROUP_DIR = '단체'
 export const OTHER_DIR = '기타'
+export const ORIGINAL_DIR = '오리지널'
 
 // Windows-safe folder name.
 export function safeName(s: string): string {
@@ -41,7 +43,8 @@ function charInfo(db: Db): Map<number, CharInfo> {
   const rows = db
     .prepare(
       `SELECT c.id, COALESCE(c.parent_id, c.id) AS root,
-         COALESCE(p.name, c.name) AS name, s.name AS series,
+         CASE WHEN p.id IS NULL THEN COALESCE(c.display_name, c.name) ELSE COALESCE(p.display_name, p.name) END AS name,
+         COALESCE(s.display_name, s.name) AS series,
          COALESCE(p.affiliation_id, c.affiliation_id) AS aff
        FROM characters c LEFT JOIN characters p ON p.id = c.parent_id JOIN series s ON s.id = COALESCE(p.series_id, c.series_id)`
     )
@@ -53,12 +56,12 @@ function charInfo(db: Db): Map<number, CharInfo> {
 // Folder (relative to the organize root) an image belongs in, or null when it
 // isn't settled (something still in review / unknown).
 export function targetDir(
-  img: { kind: string; rating: Rating; group_only?: number; group_series?: string | null; rows: { character_id: number | null; status: string }[] },
+  img: { kind: string; rating: Rating; original?: number; group_only?: number; group_series?: string | null; rows: { character_id: number | null; status: string }[] },
   chars: Map<number, CharInfo>,
   s: Pick<Settings, 'splitByRating' | 'thresholds' | 'moveAuto'>
 ): string | null {
   const top = s.splitByRating ? [RATING_DIR[img.rating]] : []
-  if (img.kind === 'other') return join(...top, OTHER_DIR)
+  if (img.kind === 'other') return join(...top, img.original ? ORIGINAL_DIR : OTHER_DIR)
   if (img.group_only) return img.group_series ? join(...top, safeName(img.group_series), GROUP_DIR) : join(...top, GROUP_DIR)
   const rows = img.rows
   if (!rows.length || rows.some((r) => r.status === 'pending' || r.status === 'unknown' || r.character_id === null)) return null
@@ -94,15 +97,17 @@ function settledImages(db: Db, where: string): {
   path: string
   kind: string
   rating: Rating
+  original: number
   group_only: number
   group_series: string | null
   organized_path: string | null
   rows: { character_id: number | null; status: string }[]
 }[] {
-  const imgs = db.prepare(`SELECT id, path, kind, rating, group_only, (SELECT name FROM series WHERE id = images.group_series_id) AS group_series, organized_path FROM images WHERE set_aside = 0 AND ${where}`).all() as {
+  const imgs = db.prepare(`SELECT id, path, kind, rating, original, group_only, (SELECT COALESCE(display_name, name) FROM series WHERE id = images.group_series_id) AS group_series, organized_path FROM images WHERE set_aside = 0 AND ${where}`).all() as {
     id: number
     path: string
     kind: string
+    original: number
     group_only: number
     group_series: string | null
     rating: Rating

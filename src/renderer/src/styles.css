@@ -8,6 +8,7 @@
   --line: #dedee5;
   --text: #101114;
   --text-dim: #686b82;
+  --text-tag: #474a5c; /* tag + button text — a step darker than --text-dim */
   --text-hover: #000000;
   --muted: #9497a9;
   --accent: #7132f5;
@@ -31,6 +32,7 @@
   --line: #2b3040;
   --text: #eceef4;
   --text-dim: #9aa0b2;
+  --text-tag: #c3c7d3; /* tag + button text — a step brighter than --text-dim */
   --text-hover: #ffffff;
   --muted: #6f7484;
   --accent: #8b5cf6;
@@ -60,9 +62,17 @@ body {
      (a URL, a title with no spaces) still breaks rather than overflow */
   word-break: keep-all;
   overflow-wrap: break-word;
-  font-family: 'IBM Plex Sans', 'Helvetica Neue', Helvetica, Arial, 'Malgun Gothic', sans-serif;
+  font-family: 'Noto Sans KR Variable', 'Noto Sans JP Variable', 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans', 'Malgun Gothic', sans-serif;
   font-size: 14px;
   user-select: none;
+}
+/* Noto Sans everywhere (2026-11-13, bundled — main.tsx), buttons and fields included — they
+   don't inherit the page font by default */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 h1,
 h2 {
@@ -101,7 +111,7 @@ h2 {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--r4);
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -130,6 +140,14 @@ h2 {
 .btn.primary:hover {
   filter: var(--hover-filter);
 }
+/* off (e.g. 적용 before there is anything to apply): faded, no hover */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn:disabled:hover {
+  filter: none;
+}
 .mini {
   display: inline-flex;
   align-items: center;
@@ -140,7 +158,7 @@ h2 {
   background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: var(--r4);
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -221,7 +239,7 @@ button:active {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 20px;
   cursor: pointer;
 }
@@ -459,7 +477,7 @@ button:active {
   border: 1px solid transparent;
   border-radius: var(--r3);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text); /* 목록 글자 = 기본 색, 회색 아님 */
   font-size: 13px;
   font-weight: 600;
   text-align: left;
@@ -504,7 +522,7 @@ button:active {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 16px;
   cursor: pointer;
 }
@@ -558,7 +576,7 @@ button:active {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   cursor: pointer;
 }
 .search-clear:hover,
@@ -704,6 +722,9 @@ button:active {
 .viewer-meta {
   display: flex;
   flex-wrap: wrap;
+  /* one baseline: a part with Hangul (fallback font) otherwise sits lower
+     than the digits-only ones (해상도, n / N) */
+  align-items: baseline;
   gap: 4px 14px;
   font-size: 12px;
   color: #9aa0b2;
@@ -841,7 +862,7 @@ button:active {
   border: none;
   border-radius: 3px;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   cursor: pointer;
 }
 .stepper-btn .micon {
@@ -869,7 +890,7 @@ button:active {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 16px;
   cursor: pointer;
 }
@@ -904,7 +925,7 @@ button:active {
   border-radius: 999px;
   background: var(--bg-2);
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-tag);
 }
 .tag-chip button {
   width: 18px;
@@ -915,7 +936,7 @@ button:active {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   cursor: pointer;
 }
 .tag-chip button:hover {
@@ -982,7 +1003,7 @@ button:active {
   object-fit: contain;
 }
 .review-stage .viewer-arrow {
-  color: var(--text-dim);
+  color: var(--text-tag);
 }
 .review-stage .viewer-arrow:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -1274,7 +1295,7 @@ button:active {
   color: var(--accent);
 }
 .viewer .edit-bar .flat-group .mini:not(.on) {
-  color: var(--text-dim);
+  color: var(--text-tag);
 }
 .viewer .edit-bar .flat-group > * + *::before {
   background: var(--line);
@@ -1371,7 +1392,7 @@ kbd {
 }
 .btn:not(.primary) kbd {
   background: var(--bg-3);
-  color: var(--text-dim);
+  color: var(--text-tag);
 }
 .tree-item.variant {
   padding-left: 52px;
@@ -1420,7 +1441,7 @@ kbd {
   border-radius: var(--r3);
   background: var(--bg-1);
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-tag);
   cursor: pointer;
 }
 .outfit-opt::before {
@@ -1451,6 +1472,15 @@ kbd {
 .learn-row .tag-input {
   flex: 1;
 }
+/* 설정 › Gelbooru API 키: user_id · api_key side by side */
+.gel-key {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.gel-key .tag-input {
+  width: 150px;
+}
 .learn-plan {
   display: flex;
   flex-direction: column;
@@ -1462,6 +1492,96 @@ kbd {
 }
 .learn-plan .btn.primary {
   align-self: flex-start;
+}
+/* 직접 학습: the character search with the start button on its right, as tall as the box */
+.learn-folder-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+.learn-folder-picker {
+  flex: 1;
+  min-width: 0;
+}
+.learn-folder-go {
+  flex: none;
+  height: 34px;
+}
+/* 학습한 캐릭터: search, then games (title row folds its characters) */
+.learn-learned-search {
+  margin: 10px 0 4px;
+}
+.learn-series {
+  margin-top: 10px;
+}
+.learn-series .manage-game-title {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  cursor: pointer;
+  user-select: none;
+}
+.learn-series .caret {
+  font-size: 18px;
+  color: var(--text-dim);
+  transition: transform 0.18s ease-out;
+}
+.learn-series .caret.up {
+  transform: rotate(180deg);
+}
+/* the list's text in the normal colour, not grey */
+.learn-series .row-desc,
+.learn-series .mini:not(:hover) {
+  color: var(--text);
+}
+/* A running 학습 job inside its card */
+.learn-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--r4);
+  background: var(--bg-2);
+}
+.learn-progress-head,
+.learn-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.learn-progress-head .mini {
+  margin-left: auto;
+}
+.learn-progress .bar {
+  width: 100%;
+}
+.learn-progress .bar.thin {
+  height: 4px;
+}
+.learn-search-state {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.learn-search-msg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: none;
+  padding: 10px;
+}
+.learn-search-msg .bar {
+  width: 80px;
+  flex-shrink: 0;
+}
+.learn-search-msg.err {
+  color: var(--danger);
+}
+.status-detail {
+  color: var(--text-dim);
 }
 .learn-search {
   margin-top: 10px;
@@ -1543,10 +1663,14 @@ kbd {
 .page-head h1 {
   margin: 0;
 }
-/* 관리: the title on its own line, tabs + buttons on the line below */
+/* 관리: the title on its own line, the tabs below it, then a line
+   (캐릭터 / 소속 / 학습 alike) */
 .page-head.stack {
   flex-wrap: wrap;
   row-gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
 }
 .page-head.stack h1 {
   flex-basis: 100%;
@@ -1592,13 +1716,7 @@ kbd {
   gap: 16px;
   align-items: start;
 }
-.manage-list {
-  max-height: calc(100vh - 230px);
-  overflow: auto;
-}
-.manage-list .search-box {
-  margin-bottom: 8px;
-}
+
 .manage-game + .manage-game {
   margin-top: 10px;
 }
@@ -1606,6 +1724,25 @@ kbd {
   font-weight: 600;
   padding: 6px 4px;
   border-bottom: 1px solid var(--line);
+}
+.manage-game-title .dim {
+  margin-left: 6px;
+}
+.manage-game-title .manage-sys {
+  font-weight: 400;
+}
+/* 캐릭터 적은 게임: "캐릭터 [2] 명 이하인 게임" */
+.ko-max {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 13px;
+}
+.ko-max input.tag-input {
+  width: 64px;
+  min-width: 0;
+  flex: 0 0 64px;
 }
 .manage-row {
   display: flex;
@@ -1759,19 +1896,101 @@ kbd {
 .page.unknown {
   --page-w: 1240px;
 }
+/* The top (title, tabs, tools, description) stays put; the area under it
+   is the one scroller, full width so its scrollbar is at the window's edge
+   (the page's centring padding moves onto the two parts). The list card
+   (12px inside all round, corners concentric with the search box: its 16px
+   pill radius + 12px) moves in it like Envelope's album card: its top goes
+   up out of sight, its bottom comes up at the end. The search box sticks at
+   the area's top; the side panel too, scrolling inside when taller. */
+.page.manage {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 28px 0 0;
+}
+.manage-top,
+.manage-scroll {
+  padding-left: max(32px, calc((100% - var(--page-w)) / 2 + 32px));
+  padding-right: max(32px, calc((100% - var(--page-w)) / 2 + 32px));
+}
+.manage-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 28px;
+}
+/* its scrollbar is drawn inside the list card instead (CardScrollbar) */
+.manage-scroll {
+  scrollbar-width: none;
+}
+.manage-scroll::-webkit-scrollbar {
+  display: none;
+}
+.card-scrollbar {
+  position: fixed;
+  z-index: 3;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--scroll-thumb);
+  cursor: default;
+}
+.card-scrollbar:hover,
+.card-scrollbar.drag {
+  background: var(--scroll-thumb-hover);
+}
+.manage-list {
+  padding: 0 12px 12px;
+  border-radius: 28px;
+}
+.manage-side {
+  position: sticky;
+  top: 0;
+  max-height: calc(var(--area-h, 600px) - 28px);
+  overflow: auto;
+  scrollbar-gutter: stable; /* its scrollbar beside the cards, not over their edge */
+}
+/* Search: sticky at the original 12px from the edge; scrolled down it folds
+   into a round button (the rows show around it) */
+.manage-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-top: 12px;
+  margin-bottom: 8px;
+  pointer-events: none;
+}
+.manage-search > * {
+  pointer-events: auto;
+}
+/* one box that shrinks into the round button and grows back */
 .manage-list .search-box {
   display: flex;
   width: 100%;
+  overflow: hidden;
+  transition:
+    width 0.22s ease,
+    padding 0.22s ease,
+    box-shadow 0.22s ease;
 }
-.manage-list {
-  padding-top: 0;
+.manage-list .search-box input {
+  transition: opacity 0.16s ease;
 }
-.manage-list .search-box {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin-top: 12px;
+.manage-search .search-box > .micon {
+  flex: none;
+  transition: transform 0.22s ease;
 }
+.manage-search.folded .search-box {
+  width: 32px;
+  padding: 0 0 0 7px;
+  cursor: pointer;
+  box-shadow: var(--shadow-subtle);
+}
+.manage-search.folded .search-box input {
+  opacity: 0;
+  pointer-events: none;
+}
+
 
 /* ---- 소속 조직도 ---- */
 .page.org {
@@ -1950,15 +2169,93 @@ kbd {
   cursor: default;
   border-color: var(--accent);
 }
-.org-box.drop-inside {
+/* Drop hints: a purple line outside the box where the dragged box will go
+   (above / below = same level, right = under this box) and what it does. */
+.org-box.drop-chars {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-.org-box.drop-before {
-  box-shadow: -4px 0 0 var(--accent);
+.org-box.drop-before::before,
+.org-box.drop-after::before,
+.org-box.drop-inside::before {
+  content: '';
+  position: absolute;
+  z-index: 5;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
 }
-.org-box.drop-after {
-  box-shadow: 4px 0 0 var(--accent);
+.org-box.drop-before::before,
+.org-box.drop-after::before {
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+.org-box.drop-before::before {
+  top: -7px;
+}
+.org-box.drop-after::before {
+  bottom: -7px;
+}
+.org-box.drop-inside::before {
+  top: 0;
+  bottom: 0;
+  right: -10px;
+  width: 3px;
+}
+.org-box[data-drop-label]::after {
+  content: attr(data-drop-label);
+  position: absolute;
+  z-index: 6;
+  left: calc(100% + 18px);
+  padding: 3px 9px;
+  border-radius: var(--r2);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow-subtle);
+  pointer-events: none;
+}
+.org-box.drop-before[data-drop-label]::after {
+  top: -7px;
+  transform: translateY(-50%);
+}
+.org-box.drop-after[data-drop-label]::after {
+  bottom: -7px;
+  transform: translateY(50%);
+}
+.org-box.drop-inside[data-drop-label]::after {
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* cut, waiting to be pasted */
+.org-box.cut,
+.org-char.cut {
+  opacity: 0.45;
+  border-style: dashed;
+}
+.org-tools .mini.icon.paste {
+  color: var(--accent);
+}
+/* a box with a paste button keeps its tools visible */
+.org-box:has(.paste) .org-tools {
+  opacity: 1;
+}
+.org-clip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 6px 8px 6px 12px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r4);
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.org-clip > span {
+  flex: 1;
 }
 .org-head {
   display: flex;
@@ -2289,7 +2586,7 @@ select.tag-input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 14px;
   cursor: pointer;
 }
@@ -2499,6 +2796,13 @@ select.tag-input {
   margin-left: auto;
   margin-right: 14px;
 }
+/* rating · favorite · group and the buttons on the middle of the two text
+   lines' ink (the box middle is ~1px above it) */
+.viewer-rate,
+.viewer-top > .flat-group {
+  position: relative;
+  top: 1px;
+}
 /* the viewer is dark in both themes: unset stars must not look lit */
 .viewer-rate .star:not(.on) {
   color: rgba(255, 255, 255, 0.22);
@@ -2585,7 +2889,7 @@ button.combo-box:focus-visible,
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   cursor: pointer;
 }
 .combo-arrow:hover {
@@ -2593,7 +2897,7 @@ button.combo-box:focus-visible,
   color: var(--text-hover);
 }
 .combo .caret {
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 16px;
   transition: transform 0.18s ease-out;
 }
@@ -2923,8 +3227,10 @@ button.combo-box:focus-visible,
   right: 6px;
 }
 .org-box.no-chars {
-  position: relative;
   text-align: center;
+}
+.org-box {
+  position: relative; /* drop line / label */
 }
 .org-tools .mini.icon {
   width: 26px;
@@ -3107,6 +3413,21 @@ button.combo-box:focus-visible,
   width: 30px;
   height: 30px;
   font-size: 13px;
+}
+
+/* tree: 정렬 (이름순 / 개수순) left, 총 n명 (characters) right, above the games */
+.tree-sort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -2px 0 2px;
+}
+.tree-total {
+  padding-right: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 /* 무시한 캐릭터 (tree) */
@@ -3500,6 +3821,317 @@ button.combo-box:focus-visible,
   overflow-y: auto;
   min-height: 0;
 }
+/* 설정 › LLM: key / model / address inputs */
+.llm-field {
+  width: 280px;
+  flex-shrink: 0;
+}
+/* 관리 › 캐릭터: the tools under the tabs' line, 한글 이름 on the left,
+   내보내기 / 불러오기 at the right end; the description below them as far
+   from them as the line above (10px). */
+.manage-tools {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.manage-tools + .hint {
+  margin-top: 0;
+}
+/* the side panel, compact: bold name + where below, then label | input | button rows */
+.manage-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.me-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.me-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+.me-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.me-label {
+  flex: none;
+  width: 44px; /* fits 내부명 */
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.me-row .tag-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+}
+.me-row > .mini,
+.me-row > .flat-group {
+  flex: none;
+}
+.me-chips {
+  padding-left: 40px;
+  margin-top: -2px;
+}
+/* Dialog title with its description right under it (the modal's 12px gap is
+   for the sections below) */
+.dlg-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dlg-title h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+/* a control row with its note under it */
+.dlg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dlg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* 한글 이름 dialog: game picker, rows of from → to with a checkbox */
+/* as wide as the support note under the game box */
+.modal.ko-names {
+  width: min(540px, calc(100vw - 48px));
+}
+.ko-game {
+  flex: 1;
+  min-width: 0;
+}
+.ko-game .combo-box {
+  height: 34px;
+  padding-right: 6px;
+}
+/* 지원 / 미지원 at the game box's right end */
+.ko-site {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ko-site.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dlg-row > .btn {
+  flex: none;
+  margin-left: auto;
+}
+.ko-row .menu-opt {
+  width: 100%;
+  gap: 8px;
+}
+.ko-row + .ko-row {
+  border-top: 1px solid var(--line);
+}
+/* 조직도 불러오기 dialog */
+.modal.org-import {
+  width: min(720px, calc(100vw - 48px));
+}
+.modal.org-import h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.org-import-url,
+.org-import-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.org-import-url .tag-input {
+  flex: 1;
+  height: 36px;
+}
+.org-import-file .dim {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-import-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+  max-height: 320px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r4);
+  background: var(--bg-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  overflow: hidden;
+}
+.org-import-drop:hover {
+  border-color: var(--accent);
+}
+.org-import-drop span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.org-import-drop img {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+}
+.org-import-rows {
+  max-height: 360px;
+  overflow-x: hidden;
+}
+.org-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.org-import-row + .org-import-row {
+  border-top: 1px solid var(--line);
+}
+.org-import-name {
+  font-weight: 600;
+}
+.org-import-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.org-import-tag.new {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.org-import-tag.moved {
+  background: var(--bg-3);
+  color: var(--text-dim);
+}
+.org-import-tag.game {
+  background: var(--bg-3);
+  color: var(--text);
+}
+.org-import-chars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+}
+.org-import-chars span {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  font-size: 12px;
+}
+.org-import-chars span.missing {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+/* 하위 소속으로 이동…: the bar's 소속 · 캐릭터 찾기 as a popup — a full-width
+   search box, then the list (name left, path right); the list scrolls with
+   its bar at the popup's outer edge. */
+.org-move-pop {
+  position: fixed;
+  z-index: 2000;
+  width: 420px;
+  max-width: calc(100vw - 16px);
+  max-height: min(560px, calc(100vh - 16px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r4);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-subtle);
+  overflow: hidden;
+  animation: pop-in 0.12s ease-out;
+}
+.org-move-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.org-move-head > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-move-head b {
+  color: var(--text);
+}
+.org-move-pop .picker-box {
+  flex: none;
+  height: 38px;
+  margin: 8px 12px 8px;
+}
+.org-move-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  padding: 4px 0 6px;
+}
+.org-move-list .picker-opt {
+  flex: none;
+  min-width: 0;
+  padding: 9px 14px;
+}
+.org-move-list .picker-opt + .picker-opt {
+  border-top: none;
+}
+.org-move-list .picker-opt:hover {
+  background: var(--bg-2);
+}
+.org-move-list .picker-opt.sel {
+  background: var(--accent-soft);
+}
+.org-move-list .picker-name {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-move-list .picker-series {
+  flex: 1;
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-move-empty {
+  padding: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
 
 /* Themed hover tooltip (Tooltip.tsx — Halftone's, replaces the native white
    title bubble) */
@@ -3520,4 +4152,107 @@ button.combo-box:focus-visible,
   pointer-events: none;
   white-space: normal;
   overflow-wrap: break-word;
+}
+
+/* Arrow icons in UI text (arrowText): sized and set on the text's baseline */
+.micon.txt-arrow {
+  width: 1.05em;
+  height: 1.05em;
+  margin: 0 0.12em;
+  vertical-align: -0.16em;
+}
+.micon.txt-key {
+  width: 1.25em;
+  height: 1.25em;
+  margin: 0 -0.1em;
+  vertical-align: -0.3em;
+}
+
+/* ===== Confirm / notice dialogs — Halftone mobile style (every app; rule in
+   ~/.claude/CLAUDE.md): the title big and left-aligned at the top, the
+   explanation small and left-aligned under it, small text buttons at the
+   bottom right in the order action (저장 / 삭제) · middle (저장 안 함) · close.
+   Colour: nothing is coloured except the main action — purple when it is
+   positive (저장 / 확인), red when it loses something (삭제 / 덮어쓰기).
+   Last in the file so it beats the older dialog rules above. ===== */
+.modal-back .modal.small {
+  text-align: left;
+  padding: 22px 22px 12px;
+  border: none;
+  background: var(--bg-1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+}
+.modal.small .modal-head h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--text);
+  text-align: left;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.modal.small > .row-desc {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  text-align: left;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.modal.small .modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-right: -8px;
+}
+.modal.small .modal-foot .btn {
+  flex: none;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--r3);
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.modal.small .modal-foot .btn::before {
+  display: none;
+}
+.modal.small .modal-foot .btn:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--text);
+  filter: none;
+}
+.modal.small .modal-foot .btn.primary,
+.modal.small .modal-foot .btn.primary:hover:not(:disabled) {
+  color: var(--accent);
+}
+.modal.small .modal-foot .btn.danger,
+.modal.small .modal-foot .btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+.modal.small .modal-foot .btn:active:not(:disabled) {
+  background: var(--bg-3);
+}
+.modal.small {
+  gap: 0;
+}
+.modal.small .modal-head {
+  margin-bottom: 6px;
+}
+.modal.small > :not(.modal-head):not(.row-desc):not(.modal-foot) {
+  margin-bottom: 12px;
+}
+.modal.small .modal-foot .btn .micon {
+  display: none;
 }

@@ -77,9 +77,13 @@ export async function applyMobileFiles(
 
 const lower = (s: string): string => s.trim().toLowerCase()
 
+// The phone shows (and sends) the 표시 이름; system names and aliases match too.
+type Named = { id: number; name: string; shown: string | null; aliases: string }
+const names = (r: Named): string[] => [r.name, r.shown ?? '', ...(JSON.parse(r.aliases) as string[])].filter(Boolean)
+
 function seriesId(db: Db, name: string): number | null {
-  for (const r of db.prepare('SELECT id, name, aliases FROM series').all() as { id: number; name: string; aliases: string }[]) {
-    if ([r.name, ...(JSON.parse(r.aliases) as string[])].some((x) => lower(x) === lower(name))) return r.id
+  for (const r of db.prepare('SELECT id, name, display_name AS shown, aliases FROM series').all() as Named[]) {
+    if (names(r).some((x) => lower(x) === lower(name))) return r.id
   }
   return null
 }
@@ -89,23 +93,23 @@ function seriesId(db: Db, name: string): number | null {
 function charId(db: Db, c: CharRef, create: boolean): number | null {
   const m = /^c(\d+)$/.exec(c.k ?? '')
   if (m) {
-    const r = db.prepare('SELECT c.id, c.name, s.name AS series FROM characters c JOIN series s ON s.id = c.series_id WHERE c.id = ?').get(Number(m[1])) as
-      | { id: number; name: string; series: string }
+    const r = db.prepare('SELECT id, name, display_name AS shown FROM characters WHERE id = ?').get(Number(m[1])) as
+      | { id: number; name: string; shown: string | null }
       | undefined
-    if (r && lower(r.name) === lower(c.name)) return r.id
+    if (r && (lower(r.name) === lower(c.name) || (r.shown !== null && lower(r.shown) === lower(c.name)))) return r.id
   }
   const sid = seriesId(db, c.series)
   if (sid !== null) {
-    for (const r of db.prepare('SELECT id, name, aliases FROM characters WHERE series_id = ?').all(sid) as { id: number; name: string; aliases: string }[]) {
-      if ([r.name, ...(JSON.parse(r.aliases) as string[])].some((x) => lower(x) === lower(c.name))) return r.id
+    for (const r of db.prepare('SELECT id, name, display_name AS shown, aliases FROM characters WHERE series_id = ?').all(sid) as Named[]) {
+      if (names(r).some((x) => lower(x) === lower(c.name))) return r.id
     }
   }
   return create ? review.createCharacter(db, c.name, c.series) : null
 }
 
 function affByName(db: Db, sid: number, name: string): number | null {
-  for (const a of db.prepare('SELECT id, name, aliases FROM affiliations WHERE series_id = ?').all(sid) as { id: number; name: string; aliases: string }[]) {
-    if ([a.name, ...(JSON.parse(a.aliases) as string[])].some((x) => lower(x) === lower(name))) return a.id
+  for (const a of db.prepare('SELECT id, name, display_name AS shown, aliases FROM affiliations WHERE series_id = ?').all(sid) as Named[]) {
+    if (names(a).some((x) => lower(x) === lower(name))) return a.id
   }
   return null
 }

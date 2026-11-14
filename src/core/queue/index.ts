@@ -11,6 +11,8 @@ import type { ProgressEvent } from '../../shared/types'
 export interface JobContext {
   signal: AbortSignal
   report: (done: number, total: number, label?: string, unit?: 'bytes') => void
+  // The step inside the current done/total; cleared by the next report().
+  step?: (detail: string, done?: number, total?: number) => void
 }
 
 export type JobFn<T> = (ctx: JobContext) => Promise<T>
@@ -73,7 +75,7 @@ export class JobQueue {
           r.ctrl.abort()
         }
     }
-    this.emit({ jobId: id, label, done: 0, total: 0, state: 'queued', background })
+    this.emit({ jobId: id, name: label, label, done: 0, total: 0, state: 'queued', background })
     this.pump()
     return { id, done }
   }
@@ -82,7 +84,7 @@ export class JobQueue {
     const i = this.waiting.findIndex((e) => e.id === id)
     if (i >= 0) {
       const [e] = this.waiting.splice(i, 1)
-      this.emit({ jobId: id, label: e.label, done: 0, total: 0, state: 'cancelled' })
+      this.emit({ jobId: id, name: e.label, label: e.label, done: 0, total: 0, state: 'cancelled' })
       e.reject(new CancelledError())
       return true
     }
@@ -109,15 +111,25 @@ export class JobQueue {
 
   private async run(e: Entry): Promise<void> {
     let last: { done: number; total: number; unit?: 'bytes' } = { done: 0, total: 0 }
-    const report = (done: number, total: number, label?: string, unit?: 'bytes'): void => {
+    let label = e.label
+    let detail: Pick<ProgressEvent, 'detail' | 'step'> = {}
+    const running = (): void =>
+      this.emit({ jobId: e.id, name: e.label, label, ...last, ...detail, state: 'running', background: e.background })
+    const report = (done: number, total: number, l?: string, unit?: 'bytes'): void => {
       last = { done, total, unit }
-      this.emit({ jobId: e.id, label: label ?? e.label, done, total, unit, state: 'running', background: e.background })
+      label = l ?? e.label
+      detail = {}
+      running()
     }
-    this.emit({ jobId: e.id, label: e.label, done: 0, total: 0, state: 'running', background: e.background })
+    const step = (d: string, done?: number, total?: number): void => {
+      detail = { detail: d, step: total ? { done: done ?? 0, total } : undefined }
+      running()
+    }
+    running()
     try {
-      const v = await e.fn({ signal: e.ctrl.signal, report })
+      const v = await e.fn({ signal: e.ctrl.signal, report, step })
       if (e.ctrl.signal.aborted) throw new CancelledError() // stopped (or made way: runs again)
-      this.emit({ jobId: e.id, label: e.label, ...last, state: 'done', background: e.background })
+      this.emit({ jobId: e.id, name: e.label, label: e.label, ...last, state: 'done', background: e.background })
       e.resolve(v)
     } catch (err) {
       if (e.preempted) {
@@ -125,12 +137,13 @@ export class JobQueue {
         e.preempted = false
         e.ctrl = new AbortController()
         this.waiting.push(e)
-        this.emit({ jobId: e.id, label: e.label, done: 0, total: 0, state: 'queued', background: true })
+        this.emit({ jobId: e.id, name: e.label, label: e.label, done: 0, total: 0, state: 'queued', background: true })
         return
       }
       const cancelled = e.ctrl.signal.aborted || err instanceof CancelledError
       this.emit({
         jobId: e.id,
+        name: e.label,
         label: e.label,
         ...last,
         state: cancelled ? 'cancelled' : 'failed',

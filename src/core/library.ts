@@ -3,6 +3,7 @@
 // sorted image list.
 import { promises as fs } from 'fs'
 import type { Db } from './db'
+import { shown as nm } from './names'
 import type { ImageItem, LibraryFilter, LibraryTree, MatchStatus, RatingPick, TreeAffiliation, TreeCounts } from '../shared/types'
 
 // Images that count as "sorted" under a character: auto or user-confirmed.
@@ -99,7 +100,8 @@ function treeCounts(db: Db, rc: string): {
         `SELECT COUNT(*) AS n FROM images i WHERE i.classified_at IS NOT NULL AND i.kind <> 'other' AND i.group_only = 0
            AND NOT EXISTS (SELECT 1 FROM image_characters ic WHERE ic.image_id = i.id AND ic.status IN ('auto','confirmed','pending'))${and}`
       ),
-      other: one(`SELECT COUNT(*) AS n FROM images i WHERE i.kind = 'other'${and}`),
+      original: one(`SELECT COUNT(*) AS n FROM images i WHERE i.kind = 'other' AND i.original = 1${and}`),
+      other: one(`SELECT COUNT(*) AS n FROM images i WHERE i.kind = 'other' AND i.original = 0${and}`),
       groupShot: one(`SELECT COUNT(*) AS n FROM images i WHERE i.group_only = 1${and}`),
       unclassified: one(`SELECT COUNT(*) AS n FROM images i WHERE i.classified_at IS NULL${and}`),
       setAside: one(`SELECT COUNT(*) AS n FROM images i WHERE i.set_aside = 1${rc ? ` AND ${rc}` : ''}`)
@@ -113,13 +115,13 @@ export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: n
   const f = rc ? treeCounts(db, rc) : null
   const chars = db
     .prepare(
-      `SELECT s.id AS sid, s.name AS sname, c.id AS cid, c.name AS cname, c.parent_id AS pid, c.danbooru_tag AS tag
+      `SELECT s.id AS sid, ${nm('s')} AS sname, c.id AS cid, ${nm('c')} AS cname, c.parent_id AS pid, c.danbooru_tag AS tag
        FROM characters c JOIN series s ON s.id = c.series_id`
     )
     .all() as { sid: number; sname: string; cid: number; cname: string; pid: number | null; tag: string | null }[]
   const byId = new Map(chars.map((r) => [r.cid, r]))
   const affRows = db
-    .prepare('SELECT id, series_id AS sid, name, parent_id AS parent FROM affiliations ORDER BY sort_order, id')
+    .prepare(`SELECT a.id, a.series_id AS sid, ${nm('a')} AS name, a.parent_id AS parent FROM affiliations a ORDER BY a.sort_order, a.id`)
     .all() as { id: number; sid: number; name: string; parent: number | null }[]
   const parentOf = new Map(affRows.map((a) => [a.id, a.parent]))
   const affAll = affiliationCounts(db, 'i.set_aside = 0', parentOf)
@@ -152,7 +154,7 @@ export function libraryTree(db: Db, ratings: RatingPick[] = ALL_RATINGS, dups: n
     nodes.get(r.pid)?.children!.push({ id: r.cid, name: r.cname, tag: r.tag, count: n, shown: shown('own', r.cid) })
   }
   // a game with only 단체 사진 still shows; each game lists its 단체 사진
-  const seriesName = new Map((db.prepare('SELECT id, name FROM series').all() as { id: number; name: string }[]).map((r) => [r.id, r.name]))
+  const seriesName = new Map((db.prepare(`SELECT s.id, ${nm('s')} AS name FROM series s`).all() as { id: number; name: string }[]).map((r) => [r.id, r.name]))
   for (const [sid, n] of all.groupShots) {
     if (!n) continue
     let s = seriesMap.get(sid)
@@ -245,7 +247,8 @@ export function listImages(db: Db, f: LibraryFilter, dupIds: number[] = []): Ima
   } else if (n.type === 'unknown') {
     where.push(`i.classified_at IS NOT NULL AND i.kind <> 'other' AND i.group_only = 0 AND NOT EXISTS (SELECT 1 FROM image_characters ic
                 WHERE ic.image_id = i.id AND ic.status IN ('auto','confirmed','pending'))`)
-  } else if (n.type === 'other') where.push("i.kind = 'other'")
+  } else if (n.type === 'original') where.push("i.kind = 'other' AND i.original = 1")
+  else if (n.type === 'other') where.push("i.kind = 'other' AND i.original = 0")
   else if (n.type === 'groupShot') {
     where.push(n.id === undefined ? 'i.group_only = 1' : 'i.group_only = 1 AND i.group_series_id = @nid')
     if (n.id !== undefined) params.nid = n.id
@@ -260,14 +263,15 @@ export function listImages(db: Db, f: LibraryFilter, dupIds: number[] = []): Ima
   if (q) {
     where.push(`(LOWER(i.path) LIKE @q OR EXISTS (SELECT 1 FROM image_characters ic JOIN characters c ON c.id = ic.character_id
                 JOIN series s ON s.id = c.series_id WHERE ic.image_id = i.id
-                AND (LOWER(c.name) LIKE @q OR LOWER(c.aliases) LIKE @q OR LOWER(s.name) LIKE @q OR LOWER(s.aliases) LIKE @q)))`)
+                AND (LOWER(c.name) LIKE @q OR LOWER(c.display_name) LIKE @q OR LOWER(c.aliases) LIKE @q OR LOWER(s.name) LIKE @q
+                OR LOWER(s.display_name) LIKE @q OR LOWER(s.aliases) LIKE @q)))`)
     params.q = `%${q}%`
   }
   const rows = db
     .prepare(
       `SELECT i.id, i.path, i.thumbnail_path, i.width, i.height, i.rating, i.rating_review,
-              CASE WHEN i.group_only = 1 THEN 'group' ELSE i.kind END AS kind, i.dup_of, i.error,
-              (SELECT name FROM series WHERE id = i.group_series_id) AS group_series,
+              CASE WHEN i.group_only = 1 THEN 'group' WHEN i.original = 1 THEN 'original' ELSE i.kind END AS kind, i.dup_of, i.error,
+              (SELECT COALESCE(display_name, name) FROM series WHERE id = i.group_series_id) AS group_series,
               i.file_size, i.file_mtime, i.imported_at, i.favorite, i.stars
        FROM images i ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`
     )
@@ -295,7 +299,7 @@ export function listImages(db: Db, f: LibraryFilter, dupIds: number[] = []): Ima
   if (rows.length) {
     const ic = db
       .prepare(
-        `SELECT ic.image_id AS iid, ic.character_id AS cid, c.name AS cname, s.name AS sname, c.danbooru_tag AS tag, ic.status, ic.confidence
+        `SELECT ic.image_id AS iid, ic.character_id AS cid, ${nm('c')} AS cname, ${nm('s')} AS sname, c.danbooru_tag AS tag, ic.status, ic.confidence
          FROM image_characters ic LEFT JOIN characters c ON c.id = ic.character_id
          LEFT JOIN series s ON s.id = c.series_id ORDER BY ic.id`
       )

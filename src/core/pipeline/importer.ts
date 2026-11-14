@@ -1,11 +1,12 @@
-// 가져오기 (CLAUDE.md §5.1): scan → sha256 → skip exact duplicates (or follow a
-// moved file) → probe + thumbnail + pHash → mark near-duplicates. Read-only on
-// the source files.
+// 가져오기 (CLAUDE.md §5.1): scan → sha256 → exact duplicates go to
+// <정리 폴더>/삭제됨 (or follow a moved file) → probe + thumbnail + pHash →
+// mark near-duplicates. Otherwise read-only on the source files.
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { Db } from '../db'
 import type { JobContext } from '../queue'
-import { scanImages, sha256File } from './scan'
+import { isInside, scanImages, sha256File } from './scan'
+import { deletedFolder } from '../trash'
 import { gray32, probe, writeThumb } from './imageio'
 import { hamming, phashFromGray32 } from './phash'
 
@@ -13,7 +14,8 @@ export interface ImportResult {
   scanned: number
   added: number
   moved: number // known file found at a new path → path updated
-  skipped: number // exact duplicate of an existing image
+  skipped: number // exact duplicate of an existing image, left in place (no organize folder)
+  removed: number // exact duplicate moved into <정리 폴더>/삭제됨
   failed: { path: string; error: string }[]
 }
 
@@ -22,12 +24,15 @@ export interface ImportOptions {
   exclude: string[] // e.g. the organize folder
   thumbsDir: string
   dupDistance?: number // pHash Hamming distance counted as near-duplicate
+  organizeDir?: string // exact duplicates move into its 삭제됨 folder
 }
 
 export async function importImages(db: Db, opts: ImportOptions, ctx: JobContext): Promise<ImportResult> {
-  const res: ImportResult = { scanned: 0, added: 0, moved: 0, skipped: 0, failed: [] }
+  const res: ImportResult = { scanned: 0, added: 0, moved: 0, skipped: 0, removed: 0, failed: [] }
   ctx.report(0, 0, '이미지 찾는 중…')
-  const files = await scanImages(opts.sourceDirs, opts.exclude, ctx.signal)
+  // "a.png" before its copy "a (1).png": of two identical files the library keeps the first
+  const isCopy = (p: string): number => (/\s*\(\d+\)\.[^.\/]+$/.test(p) ? 1 : 0)
+  const files = (await scanImages(opts.sourceDirs, opts.exclude, ctx.signal)).sort((a, b) => isCopy(a) - isCopy(b))
   res.scanned = files.length
 
   const byPath = db.prepare('SELECT id FROM images WHERE path = ?')
@@ -43,6 +48,7 @@ export async function importImages(db: Db, opts: ImportOptions, ctx: JobContext)
   }[]
   const setDup = db.prepare('UPDATE images SET dup_of = ? WHERE id = ?')
   const maxDist = opts.dupDistance ?? 6
+  const toDeleted = opts.organizeDir ? deletedFolder(opts.organizeDir) : null
 
   for (let i = 0; i < files.length; i++) {
     if (ctx.signal.aborted) break
@@ -56,6 +62,12 @@ export async function importImages(db: Db, opts: ImportOptions, ctx: JobContext)
         if (!existsSync(known.path)) {
           setPath.run(path, known.id)
           res.moved++
+        } else if (isInside(path, known.path)) {
+          continue // the same file, its path spelled differently (letter case)
+        } else if (toDeleted) {
+          // the very same file a second time: the library keeps the first
+          await toDeleted(path)
+          res.removed++
         } else res.skipped++
         continue
       }

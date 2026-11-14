@@ -1,16 +1,18 @@
 // 검토 대기열 (CLAUDE.md §7 Review): one image at a time, keyboard-first.
 //   1/2/3 후보 체크 · Enter 확정 (체크 없으면 1순위) · / 직접 입력 · N 새 캐릭터
-//   S 건너뛰기 · G 단체 사진 · X 캐릭터 아닌 그림 · R 등급 순환 · ←/→ 이동 · Ctrl+Z 되돌리기 (App)
+//   S 건너뛰기 · G 단체 사진 · O 오리지널 · X 기타 · R 등급 순환 · ←/→ 이동 · Ctrl+Z 되돌리기 (App)
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import { useKept } from '../keep'
+import { orderQueue, skipItem } from '../skipped'
 import type { Rating, ReviewItem, ReviewKind } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
 import DupView from './DupView'
 import type { PickedCharacter } from './CharacterPicker'
-import { CheckIcon, CloseIcon, GroupsIcon, ImageSearchIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon, PersonOffIcon, SkipNextIcon, UndoIcon } from './icons'
+import { CheckIcon, CloseIcon, GroupsIcon, ImageSearchIcon, KeyboardArrowLeftIcon, KeyboardArrowRightIcon, FaceIcon, LandscapeIcon, SkipNextIcon, UndoIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
+import { arrowText } from '../arrowText'
 
 type R = Exclude<Rating, 'unknown'>
 const RATINGS: R[] = ['general', 'sensitive', 'r18']
@@ -54,7 +56,7 @@ export default function Review(): JSX.Element {
   const pickerRef = useRef<HTMLInputElement>(null)
   const item = items[Math.min(index, items.length - 1)] as ReviewItem | undefined
 
-  const load = useCallback(async () => setItems(await window.api.reviewQueue(kind)), [kind])
+  const load = useCallback(async () => setItems(orderQueue(kind, await window.api.reviewQueue(kind))), [kind])
   // Reload on kind switch and whenever the library changes (incl. undo).
   useEffect(() => {
     void load()
@@ -111,9 +113,9 @@ export default function Review(): JSX.Element {
     const replaced = new Set((item?.candidates ?? []).filter(isSwap).map((c) => c.relatedTo!.id))
     return (item?.confirmed ?? []).filter((c) => !removed.has(c.id) && !replaced.has(c.id)).map((c) => c.id)
   }
-  const markOther = async (): Promise<void> => {
+  const markOther = async (original: boolean): Promise<void> => {
     if (!item) return
-    await window.api.markOther([item.id])
+    await window.api.markOther([item.id], original)
     await after()
   }
   // 단체 사진: pick the game first (suggested: the top candidate's)
@@ -123,6 +125,15 @@ export default function Review(): JSX.Element {
     useStore.getState().setGroupShotDialog({ ids: [item.id], suggest, after: () => void after() })
   }
   const skip = (d = 1): void => setIndex((i) => Math.max(0, Math.min(items.length - 1, i + d)))
+  // 건너뛰기 (S): the picture goes to the back of the queue; the next one
+  // takes its place (from the last place: back to the first).
+  const skipToBack = (): void => {
+    if (!item) return
+    const i = Math.min(index, items.length - 1)
+    const next = skipItem(kind, items, item.id)
+    setItems(next)
+    if (i >= next.length - 1) setIndex(0)
+  }
   const cycleRating = (): void => setRating((r) => RATINGS[(RATINGS.indexOf(r) + 1) % RATINGS.length])
 
   useEffect(() => {
@@ -149,8 +160,9 @@ export default function Review(): JSX.Element {
       } else if (k === 'n' && kind === 'character') {
         e.preventDefault()
         setNewMode(true)
-      } else if (k === 's') skip()
-      else if (k === 'x' && kind === 'character') void markOther()
+      } else if (k === 's') skipToBack()
+      else if (k === 'o' && kind === 'character') void markOther(true)
+      else if (k === 'x' && kind === 'character') void markOther(false)
       else if (k === 'g' && kind === 'character') markGroup()
       else if (k === 'r') cycleRating()
       else if (k === 'arrowright') skip(1)
@@ -175,7 +187,7 @@ export default function Review(): JSX.Element {
   const swapped = new Set(swaps.map((c) => c.relatedTo!.id))
   const removedNames = item ? item.confirmed.filter((c) => removed.has(c.id) && !swapped.has(c.id)).map((c) => c.name) : []
   const extraLabel = [
-    ...swaps.map((c) => `${c.relatedTo!.name} → ${c.name}`),
+    ...swaps.map((c) => `${c.relatedTo!.name} 대신 ${c.name}`),
     ...(adds.length ? [`${adds.join(', ')} 추가`] : []),
     ...(removedNames.length ? [`${removedNames.join(', ')} 빼기`] : [])
   ].join(' · ')
@@ -200,9 +212,9 @@ export default function Review(): JSX.Element {
         )}
         <span className="review-keys">
           {dups
-            ? '남길 그림을 고르고 나머지 따로 두기 · 다른 그림이면 다른 그림으로 표시 · Ctrl+Z 되돌리기'
+            ? '삭제할 그림을 고르고 선택한 그림 따로 두기 · 다른 그림이면 다른 그림으로 표시 · Ctrl+Z 되돌리기'
             : kind === 'character'
-            ? '1·2·3 고르기 · Enter 확정 · 0 추가 없이 확정 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · G 단체 사진 · X 캐릭터 아닌 그림 · R 등급 · Ctrl+Z 되돌리기'
+            ? '1·2·3 고르기 · Enter 확정 · 0 추가 없이 확정 · / 직접 입력 · N 새 캐릭터 · S 건너뛰기 · G 단체 사진 · O 오리지널 · X 기타 · R 등급 · Ctrl+Z 되돌리기'
             : '1·2·3 등급 고르기 · Enter 확정 · S 건너뛰기 · Ctrl+Z 되돌리기'}
         </span>
       </div>
@@ -416,23 +428,27 @@ export default function Review(): JSX.Element {
                   <kbd>Enter</kbd>
                 </button>
               )}
-              <div className="flat-group">
-                <button className="mini" onClick={() => skip()}>
-                  <SkipNextIcon />
-                  건너뛰기
-                </button>
-                {kind === 'character' && (
+              {kind === 'character' && (
+                <div className="flat-group">
                   <button className="mini" title="누가 있는지 정하지 않고 단체 사진으로 분류 (게임을 고르면 정리 폴더/게임/단체)" onClick={() => markGroup()}>
                     <GroupsIcon />
                     단체 사진
                   </button>
-                )}
-                {kind === 'character' && (
-                  <button className="mini" onClick={() => void markOther()}>
-                    <PersonOffIcon />
-                    캐릭터 아닌 그림
+                  <button className="mini" title="이름 없는 오리지널 캐릭터 (정리 폴더/오리지널)" onClick={() => void markOther(true)}>
+                    <FaceIcon />
+                    오리지널
                   </button>
-                )}
+                  <button className="mini" title="풍경 등 인물이 없는 그림 (정리 폴더/기타)" onClick={() => void markOther(false)}>
+                    <LandscapeIcon />
+                    기타
+                  </button>
+                </div>
+              )}
+              <div className="flat-group">
+                <button className="mini" onClick={skipToBack}>
+                  <SkipNextIcon />
+                  건너뛰기
+                </button>
                 <button className="mini" title="구글 렌즈로 이 그림을 검색합니다" onClick={() => imageSearch(item.path)}>
                   <ImageSearchIcon />
                   구글에서 찾기
@@ -458,13 +474,10 @@ export default function Review(): JSX.Element {
               <h2>구글 렌즈로 검색</h2>
             </div>
             <div className="row-desc">
-              이 그림을 작게 줄인 사본(JPEG)을 구글 렌즈에 올려 검색합니다. 그림이 PC 밖으로 나가는 기능이라 처음 한 번 허용이 필요합니다. 설정 →
-              이미지 검색 허용에서 언제든 끌 수 있습니다.
+              이 그림을 작게 줄인 사본(JPEG)을 구글 렌즈에 올려 검색합니다. 그림이 PC 밖으로 나가는 기능이라 처음 한 번 허용이 필요합니다.{' '}
+              {arrowText('설정 → 이미지 검색 허용에서 언제든 끌 수 있습니다.')}
             </div>
             <div className="modal-foot">
-              <button className="btn" onClick={() => setAskSearch(null)}>
-                취소
-              </button>
               <button
                 className="btn primary"
                 autoFocus
@@ -478,6 +491,9 @@ export default function Review(): JSX.Element {
               >
                 <ImageSearchIcon />
                 허용하고 검색
+              </button>
+              <button className="btn" onClick={() => setAskSearch(null)}>
+                취소
               </button>
             </div>
           </div>

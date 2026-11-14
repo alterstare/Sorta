@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, renameSync, existsSync, writeFileSync } from 'fs'
+import { copyFileSync, mkdtempSync, rmSync, mkdirSync, renameSync, existsSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import sharp from 'sharp'
@@ -7,6 +7,7 @@ import { SortaCore, DEFAULT_SETTINGS } from '../src/core'
 import { parseCharacterTag } from '../src/core/pipeline/tags'
 import { decideRating } from '../src/core/pipeline/rating'
 import { decideCharacters, decideEnsemble } from '../src/core/pipeline/decide'
+import { trimCamie } from '../src/core/pipeline/classify'
 import { hamming, phashFromGray32 } from '../src/core/pipeline/phash'
 import { scanImages } from '../src/core/pipeline/scan'
 import { MockTagger } from '../src/core/ml/mock'
@@ -203,6 +204,24 @@ describe('import + classify', () => {
     core.close()
   })
 
+  it('moves a second copy of the very same file into 정리 폴더/삭제됨', async () => {
+    const core = new SortaCore(join(dir, 'data'))
+    core.saveSettings({ sourceDirs: [src], organizeDir: sorted })
+    await pattern(join(src, 'a.png'), 1)
+    copyFileSync(join(src, 'a.png'), join(src, 'a (1).png'))
+    const r = await core.runImport().done
+    expect(r).toMatchObject({ added: 1, removed: 1, skipped: 0 })
+    expect(existsSync(join(src, 'a.png'))).toBe(true)
+    expect(existsSync(join(src, 'a (1).png'))).toBe(false)
+    expect(existsSync(join(sorted, '삭제됨', 'a (1).png'))).toBe(true)
+    // no organize folder: the copy stays where it is
+    core.saveSettings({ organizeDir: '' })
+    copyFileSync(join(src, 'a.png'), join(src, 'b.png'))
+    expect(await core.runImport().done).toMatchObject({ added: 0, removed: 0 })
+    expect(existsSync(join(src, 'b.png'))).toBe(true)
+    core.close()
+  })
+
   it('reports undecodable files without stopping', async () => {
     const core = new SortaCore(join(dir, 'data'))
     core.saveSettings({ sourceDirs: [src] })
@@ -384,5 +403,24 @@ describe('game table + assist pass', () => {
     expect(core.tree().counts.unknown).toBe(1)
     expect(assistCalls).toBe(1)
     core.close()
+  })
+})
+
+describe('stored Camie scores', () => {
+  it('keeps strong scores and tags another model names, drops the rest', () => {
+    const st = {
+      rating: { general: 1, sensitive: 0, questionable: 0, explicit: 0 },
+      characters: [{ tag: 'hinata_(blue_archive)', score: 0.3 }],
+      pixai: [{ tag: 'mari_(blue_archive)', score: 0.2 }],
+      camie: [
+        { tag: 'kirisame_marisa', score: 0.44 },
+        { tag: 'hinata_(swimsuit)_(blue_archive)', score: 0.12 },
+        { tag: 'mari_(blue_archive)', score: 0.15 },
+        { tag: 'mostima_(arknights)', score: 0.2 }
+      ]
+    }
+    expect(trimCamie(st)).toBe(true)
+    expect(st.camie.map((c) => c.tag)).toEqual(['kirisame_marisa', 'hinata_(swimsuit)_(blue_archive)', 'mari_(blue_archive)'])
+    expect(trimCamie(st)).toBe(false)
   })
 })

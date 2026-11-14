@@ -131,12 +131,12 @@ export function GroupShotDialog(): JSX.Element | null {
           ))}
         </select>
         <div className="modal-foot">
-          <button className="btn" onClick={close}>
-            취소
-          </button>
           <button className="btn primary" onClick={() => void go()}>
             <GroupsIcon />
             단체 사진으로 분류
+          </button>
+          <button className="btn" onClick={close}>
+            취소
           </button>
         </div>
       </div>
@@ -172,9 +172,6 @@ export function TrashDialog(): JSX.Element | null {
         </div>
         <div className="row-desc">원본 파일을 휴지통으로 보내고 라이브러리에서 뺍니다. NAS의 그림은 휴지통이 없어 정리 폴더의 삭제됨 폴더로 옮깁니다. Ctrl+Z로는 되돌릴 수 없고, 휴지통 · 삭제됨 폴더에서 꺼내 다시 가져오면 돌아옵니다.</div>
         <div className="modal-foot">
-          <button className="btn" onClick={close}>
-            취소
-          </button>
           <button
             className="btn danger"
             autoFocus
@@ -184,6 +181,9 @@ export function TrashDialog(): JSX.Element | null {
           >
             <DeleteIcon />
             {busy ? '삭제하는 중…' : '삭제'}
+          </button>
+          <button className="btn" onClick={close}>
+            취소
           </button>
         </div>
       </div>
@@ -239,11 +239,11 @@ export function NewGroupDialog(): JSX.Element | null {
         />
         {!rename && <div className="row-desc">{ids?.length ? `선택한 그림 ${ids.length}장을 이 그룹에 넣습니다.` : '빈 그룹을 만듭니다.'}</div>}
         <div className="modal-foot">
-          <button className="btn" onClick={close}>
-            취소
-          </button>
           <button className="btn primary" disabled={!name.trim()} onClick={() => void done()}>
             {rename ? '바꾸기' : '만들기'}
+          </button>
+          <button className="btn" onClick={close}>
+            취소
           </button>
         </div>
       </div>

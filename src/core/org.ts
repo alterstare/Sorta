@@ -4,7 +4,8 @@
 // character placements, so Ctrl+Z restores them exactly.
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
-import type { OrgChart, OrgNode } from '../shared/types'
+import type { OrgChart, OrgImportNode, OrgImportPreview, OrgImportRow, OrgNode } from '../shared/types'
+import { nameTaken as taken, renameShown, seriesIdByName, shown } from './names'
 
 // ---- snapshot / undo ----
 
@@ -13,7 +14,9 @@ interface OrgSnap {
   seriesId: number
   wiki: string | null
   affiliations: Record<string, unknown>[]
-  placements: { id: number; affiliation_id: number | null }[]
+  // names / aliases too (조직도 불러오기 with 한글 번역 renames characters);
+  // snapshots from before have only the placement
+  placements: { id: number; affiliation_id: number | null; name?: string; aliases?: string; display_name?: string | null }[]
 }
 
 function snapshot(db: Db, seriesId: number, label: string): OrgSnap {
@@ -22,7 +25,7 @@ function snapshot(db: Db, seriesId: number, label: string): OrgSnap {
     seriesId,
     wiki: (db.prepare('SELECT wiki FROM series WHERE id = ?').get(seriesId) as { wiki: string | null }).wiki,
     affiliations: db.prepare('SELECT * FROM affiliations WHERE series_id = ?').all(seriesId) as Record<string, unknown>[],
-    placements: db.prepare('SELECT id, affiliation_id FROM characters WHERE series_id = ?').all(seriesId) as OrgSnap['placements']
+    placements: db.prepare('SELECT id, affiliation_id, name, aliases, display_name FROM characters WHERE series_id = ?').all(seriesId) as OrgSnap['placements']
   }
 }
 
@@ -38,8 +41,12 @@ function restore(db: Db, s: OrgSnap): void {
       const cols = Object.keys(a)
       db.prepare(`INSERT OR REPLACE INTO affiliations (${cols.join(',')}) VALUES (${cols.map((c) => '@' + c).join(',')})`).run(a)
     }
-    const up = db.prepare('UPDATE characters SET affiliation_id = ? WHERE id = ?')
-    for (const p of s.placements) up.run(p.affiliation_id, p.id)
+    const up = db.prepare('UPDATE characters SET affiliation_id = ?, name = COALESCE(?, name), aliases = COALESCE(?, aliases) WHERE id = ?')
+    const disp = db.prepare('UPDATE characters SET display_name = ? WHERE id = ?')
+    for (const p of s.placements) {
+      up.run(p.affiliation_id, p.name ?? null, p.aliases ?? null, p.id)
+      if (p.display_name !== undefined) disp.run(p.display_name, p.id)
+    }
   })()
 }
 
@@ -62,8 +69,8 @@ function edit<T>(db: Db, log: ActionLog, seriesId: number, label: string, fn: ()
 // ---- read ----
 
 export function seriesIdOf(db: Db, series: string): number {
-  const r = db.prepare('SELECT id FROM series WHERE name = ?').get(series) as { id: number } | undefined
-  if (!r) throw new Error(`게임 "${series}"이(가) 없습니다`)
+  const r = { id: seriesIdByName(db, series) }
+  if (r.id === undefined) throw new Error(`게임 "${series}"이(가) 없습니다`)
   return r.id
 }
 
@@ -75,26 +82,33 @@ const seriesOfAff = (db: Db, id: number): number => {
 
 export function orgChart(db: Db, series: string): OrgChart {
   const sid = seriesIdOf(db, series)
-  const s = db.prepare('SELECT name, wiki FROM series WHERE id = ?').get(sid) as { name: string; wiki: string | null }
+  const s = db.prepare(`SELECT ${shown('s')} AS name, s.name AS systemName, s.wiki FROM series s WHERE s.id = ?`).get(sid) as {
+    name: string
+    systemName: string
+    wiki: string | null
+  }
   const nodes = (
     db
-      .prepare('SELECT id, name, aliases, parent_id AS parentId, sort_order AS "order" FROM affiliations WHERE series_id = ? ORDER BY sort_order, id')
+      .prepare(
+        `SELECT a.id, ${shown('a')} AS name, a.name AS systemName, a.aliases, a.parent_id AS parentId, a.sort_order AS "order"
+         FROM affiliations a WHERE a.series_id = ? ORDER BY a.sort_order, a.id`
+      )
       .all(sid) as (Omit<OrgNode, 'aliases'> & { aliases: string })[]
   ).map((n) => ({ ...n, aliases: JSON.parse(n.aliases) as string[] }))
   const characters = db
     .prepare(
-      `SELECT c.id, c.name, c.affiliation_id AS affiliationId,
+      `SELECT c.id, ${shown('c')} AS name, c.name AS systemName, c.affiliation_id AS affiliationId,
          (SELECT COUNT(DISTINCT ic.image_id) FROM image_characters ic JOIN characters v ON v.id = ic.character_id
            WHERE (v.id = c.id OR v.parent_id = c.id) AND ic.status IN ('auto','confirmed')) AS images
-       FROM characters c WHERE c.series_id = ? AND c.parent_id IS NULL ORDER BY c.name COLLATE NOCASE`
+       FROM characters c WHERE c.series_id = ? AND c.parent_id IS NULL ORDER BY name COLLATE NOCASE`
     )
     .all(sid) as OrgChart['characters']
-  return { series: s.name, wiki: s.wiki, nodes, characters }
+  return { series: s.name, seriesSystemName: s.systemName, wiki: s.wiki, nodes, characters }
 }
 
-// Full path (top first) of every affiliation — folder names and wiki matching.
+// Full path (top first) of every affiliation, by shown names — folder names.
 export function affiliationPaths(db: Db): Map<number, string[]> {
-  const rows = db.prepare('SELECT id, name, parent_id AS parent FROM affiliations').all() as { id: number; name: string; parent: number | null }[]
+  const rows = db.prepare(`SELECT a.id, ${shown('a')} AS name, a.parent_id AS parent FROM affiliations a`).all() as { id: number; name: string; parent: number | null }[]
   const byId = new Map(rows.map((r) => [r.id, r]))
   const out = new Map<number, string[]>()
   for (const r of rows) {
@@ -112,7 +126,7 @@ export function affiliationPaths(db: Db): Map<number, string[]> {
 // ---- edits ----
 
 function nameTaken(db: Db, sid: number, name: string, except = 0): boolean {
-  return !!db.prepare('SELECT 1 FROM affiliations WHERE series_id = ? AND name = ? AND id <> ?').get(sid, name, except)
+  return taken(db, 'affiliations', name, except, sid)
 }
 
 function nextOrder(db: Db, sid: number, parentId: number | null): number {
@@ -137,18 +151,16 @@ export function addAffiliation(db: Db, log: ActionLog, series: string, name: str
   return edit(db, log, sid, '소속 추가', () => insertAff(db, sid, n, parentId))
 }
 
-// The old name stays as an alias (later wiki answers in that spelling match).
+// The name on screen: the shown name once translated, else the system name
+// (the old one stays as an alias — later wiki answers in that spelling match).
 export function renameAffiliation(db: Db, log: ActionLog, id: number, name: string): void {
   const sid = seriesOfAff(db, id)
   const n = name.trim()
   if (!n) throw new Error('이름이 비어 있습니다')
   if (nameTaken(db, sid, n, id)) throw new Error(`"${n}" 소속이 이미 있습니다`)
-  const cur = db.prepare('SELECT name, aliases FROM affiliations WHERE id = ?').get(id) as { name: string; aliases: string }
+  const cur = db.prepare(`SELECT ${shown('a')} AS name FROM affiliations a WHERE a.id = ?`).get(id) as { name: string }
   if (cur.name === n) return
-  const aliases = [...new Set([...(JSON.parse(cur.aliases) as string[]), cur.name])].filter((a) => a !== n)
-  edit(db, log, sid, '소속 이름 변경', () =>
-    db.prepare('UPDATE affiliations SET name = ?, aliases = ? WHERE id = ?').run(n, JSON.stringify(aliases), id)
-  )
+  edit(db, log, sid, '소속 이름 변경', () => renameShown(db, 'affiliations', id, n))
 }
 
 // Delete: its sub-affiliations and characters move up one level.
@@ -210,12 +222,13 @@ export function applyPaths(db: Db, log: ActionLog, series: string, items: { char
   const sid = seriesIdOf(db, series)
   return edit(db, log, sid, `소속 적용 (${items.length}명)`, () => {
     const find = (name: string): number | null => {
-      for (const a of db.prepare('SELECT id, name, aliases FROM affiliations WHERE series_id = ?').all(sid) as {
+      for (const a of db.prepare('SELECT id, name, display_name, aliases FROM affiliations WHERE series_id = ?').all(sid) as {
         id: number
         name: string
+        display_name: string | null
         aliases: string
       }[]) {
-        const all = [a.name, ...(JSON.parse(a.aliases) as string[])].map((x) => x.toLowerCase())
+        const all = [a.name, a.display_name ?? '', ...(JSON.parse(a.aliases) as string[])].filter(Boolean).map((x) => x.toLowerCase())
         if (all.includes(name.toLowerCase())) return a.id
       }
       return null
@@ -236,3 +249,131 @@ export function applyPaths(db: Db, log: ActionLog, series: string, items: { char
     return n
   })
 }
+
+// 조직도 불러오기: put the game's affiliations in the shape of `tree` (from a
+// wiki page or a picture). Each node is found by its name, any alias or its
+// `match` — anywhere in the game — or created; found ones move under the
+// node's parent (top-level nodes to the top), new names join the aliases,
+// siblings take the tree's order (others after them). Characters named in a
+// node are placed in it. Affiliations the tree doesn't name stay as they are.
+// `translate` (picture read with 한글 번역): found affiliations and characters
+// take the tree's name, the old one kept as an alias. `write` false = only
+// the preview; true = applied as one undo step.
+export function importTree(
+  db: Db,
+  log: ActionLog,
+  series: string,
+  source: string,
+  tree: OrgImportNode[],
+  write: boolean,
+  translate = false
+): OrgImportPreview {
+  const sid = seriesIdOf(db, series)
+  // name = shown, sys = system name
+  type Aff = { id: number; name: string; sys: string; aliases: string[]; parent: number | null }
+  const affs: Aff[] = (
+    db.prepare(`SELECT a.id, ${shown('a')} AS name, a.name AS sys, a.aliases, a.parent_id AS parent FROM affiliations a WHERE a.series_id = ?`).all(sid) as {
+      id: number
+      name: string
+      sys: string
+      aliases: string
+      parent: number | null
+    }[]
+  ).map((a) => ({ ...a, aliases: JSON.parse(a.aliases) as string[] }))
+  type Char = { id: number; name: string; sys: string; aliases: string[]; tag: string | null }
+  const chars: Char[] = (
+    db
+      .prepare(`SELECT c.id, ${shown('c')} AS name, c.name AS sys, c.aliases, c.danbooru_tag AS tag FROM characters c WHERE c.series_id = ? AND c.parent_id IS NULL`)
+      .all(sid) as {
+      id: number
+      name: string
+      sys: string
+      aliases: string
+      tag: string | null
+    }[]
+  ).map((c) => ({ ...c, aliases: JSON.parse(c.aliases) as string[] }))
+  const charKeys = (c: Char): string[] => [c.name, c.sys, ...c.aliases, c.tag ?? ''].filter(Boolean).map(key)
+  const preview: OrgImportPreview = { source, tree, rows: [], created: 0, moved: 0, placed: 0, renamed: 0, unknown: [], translate }
+  const nameOf = (id: number | null): string => (id === null ? '최상위' : (affs.find((a) => a.id === id)?.name ?? ''))
+  let fresh = -1 // ids of affiliations the preview would create
+  const run = (): void => {
+    const walk = (list: OrgImportNode[], parent: number | null, depth: number): void => {
+      const order: number[] = []
+      for (const n of list) {
+        const names = [n.match ?? '', n.name, ...n.aliases].filter(Boolean).map(key)
+        let a = affs.find((x) => [x.name, x.sys, ...x.aliases].some((y) => names.includes(key(y))))
+        const row: OrgImportRow = { depth, name: n.name, status: 'same', aliases: [], characters: [] }
+        if (!a) {
+          const id = write ? insertAff(db, sid, n.name, parent) : fresh--
+          a = { id, name: n.name, sys: n.name, aliases: [], parent }
+          affs.push(a)
+          row.status = 'new'
+          preview.created++
+        } else if (a.parent !== parent) {
+          row.status = 'moved'
+          row.from = nameOf(a.parent)
+          a.parent = parent
+          preview.moved++
+          if (write) db.prepare('UPDATE affiliations SET parent_id = ? WHERE id = ?').run(parent, a.id)
+        }
+        const found = a
+        // 한글 번역: the tree's name becomes the shown name (the system name stays)
+        if (
+          translate &&
+          row.status !== 'new' &&
+          key(n.name) !== key(found.name) &&
+          !affs.some((x) => x !== found && (key(x.name) === key(n.name) || key(x.sys) === key(n.name)))
+        ) {
+          row.renamed = found.name
+          found.name = n.name
+          preview.renamed++
+          if (write) db.prepare('UPDATE affiliations SET display_name = ? WHERE id = ?').run(found.name === found.sys ? null : found.name, found.id)
+        }
+        const known = new Set([found.name, found.sys, ...found.aliases].map(key))
+        const added = [n.name, ...n.aliases].filter((x) => !known.has(key(x)))
+        if (added.length) found.aliases.push(...added)
+        if (added.length) {
+          if (row.status !== 'new') row.aliases = added
+          if (write) db.prepare('UPDATE affiliations SET aliases = ? WHERE id = ?').run(JSON.stringify(found.aliases), found.id)
+        }
+        for (const cn of n.characters) {
+          const want = [cn.match ?? '', cn.name].filter(Boolean).map(key)
+          const c = chars.find((x) => charKeys(x).some((k) => want.includes(k)))
+          const entry: OrgImportRow['characters'][number] = { name: cn.name, found: !!c }
+          row.characters.push(entry)
+          if (!c) {
+            preview.unknown.push(cn.name)
+            continue
+          }
+          preview.placed++
+          if (write) db.prepare('UPDATE characters SET affiliation_id = ? WHERE (id = ? OR parent_id = ?) AND series_id = ?').run(found.id, c.id, c.id, sid)
+          if (translate && key(cn.name) !== key(c.name) && !chars.some((x) => x !== c && (key(x.name) === key(cn.name) || key(x.sys) === key(cn.name)))) {
+            entry.renamed = c.name
+            c.name = cn.name
+            preview.renamed++
+            if (write) db.prepare('UPDATE characters SET display_name = ? WHERE id = ?').run(c.name === c.sys ? null : c.name, c.id)
+          }
+        }
+        preview.rows.push(row)
+        order.push(found.id)
+        walk(n.children, found.id, depth + 1)
+      }
+      if (!write) return
+      // the tree's order first, the siblings it doesn't name after them
+      const others = (
+        db.prepare('SELECT id FROM affiliations WHERE series_id = ? AND parent_id IS ? ORDER BY sort_order, id').all(sid, parent) as { id: number }[]
+      )
+        .map((r) => r.id)
+        .filter((id) => !order.includes(id))
+      const up = db.prepare('UPDATE affiliations SET sort_order = ? WHERE id = ?')
+      ;[...order, ...others].forEach((id, i) => up.run(i, id))
+    }
+    walk(tree, null, 0)
+  }
+  if (write) edit(db, log, sid, `조직도 불러오기 (${source})`, run)
+  else run()
+  return preview
+}
+
+// Name matching: case and spaces / underscores ignored.
+const key = (s: string): string => s.toLowerCase().replace(/[_\s]+/g, ' ').trim()

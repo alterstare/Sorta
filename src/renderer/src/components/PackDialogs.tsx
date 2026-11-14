@@ -5,7 +5,7 @@ import { useStore } from '../store'
 import type { ManagedCharacter, PackPreview } from '../../../shared/types'
 import { CheckIcon, CloseIcon, DownloadIcon, WarningIcon } from './icons'
 
-function Check({ on, onClick, children, disabled }: { on: boolean; onClick: () => void; children: ReactNode; disabled?: boolean }): JSX.Element {
+export function Check({ on, onClick, children, disabled }: { on: boolean; onClick: () => void; children: ReactNode; disabled?: boolean }): JSX.Element {
   return (
     <button className={`menu-opt ${on ? 'on' : ''}`} disabled={disabled} role="checkbox" aria-checked={on} onClick={onClick}>
       <span className="menu-box">{on && <CheckIcon />}</span>
@@ -112,12 +112,12 @@ export function ExportDialog({ list, onClose }: { list: ManagedCharacter[]; onCl
           </div>
         )}
         <div className="modal-foot">
-          <button className="btn" onClick={onClose}>
-            취소
-          </button>
           <button className="btn primary" disabled={!chosen.length || busy} onClick={() => void go()}>
             <DownloadIcon />
             {busy ? '저장 중…' : `${chosen.length}개 게임 내보내기`}
+          </button>
+          <button className="btn" onClick={onClose}>
+            취소
           </button>
         </div>
       </div>
@@ -230,12 +230,12 @@ export function ImportDialog({ file, onClose }: { file: string; onClose: () => v
           </>
         )}
         <div className="modal-foot">
-          <button className="btn" onClick={onClose}>
-            취소
-          </button>
           <button className="btn primary" disabled={!pv || busy} onClick={() => void go()}>
             <CheckIcon />
             {busy ? '불러오는 중…' : '불러오기'}
+          </button>
+          <button className="btn" onClick={onClose}>
+            취소
           </button>
         </div>
       </div>

@@ -15,7 +15,7 @@ import { dirname, join } from 'path'
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
 import type { JobContext } from './queue'
-import { decodeVector, planImport, undoPackImport } from './pack'
+import { decodeVector, gzipAsync, planImport, undoPackImport } from './pack'
 import type { ImportPayload, Pack, PackFile } from './pack'
 import { sha256File } from './pipeline/scan'
 import { gray32, probe, writeThumb } from './pipeline/imageio'
@@ -108,9 +108,9 @@ export async function restoreFiles(
   const insImg = db.prepare(
     `INSERT INTO images (path, sha256, phash, width, height, rating, rating_score, rating_source, kind, imported_at,
        thumbnail_path, organized_path, classified_at, rating_review, tag_json, embedded_at, file_size, file_mtime,
-       favorite, stars, set_aside, group_only, group_series_id, error)
+       favorite, stars, set_aside, group_only, group_series_id, original, error)
      VALUES (@path, @sha, @phash, @width, @height, @rating, @score, @rs, @kind, @at, @thumb, @path, @classified, @rr, @tags,
-       @embedded, @size, @mtime, @fav, @stars, @aside, @go, @gs, @error)`
+       @embedded, @size, @mtime, @fav, @stars, @aside, @go, @gs, @original, @error)`
   )
   const insChar = db.prepare(
     'INSERT INTO image_characters (image_id, character_id, status, source, confidence, bbox, candidates) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -190,7 +190,8 @@ export async function restoreFiles(
           rating: f.rating,
           score: f.score,
           rs: f.rs,
-          kind: f.kind,
+          kind: f.kind === 'original' ? 'other' : f.kind,
+          original: f.kind === 'original' ? 1 : 0,
           at: Date.now(),
           thumb,
           classified: f.classified ? Date.now() : null,
@@ -258,7 +259,11 @@ export async function syncThumbs(root: string, thumbs: { sha: string; path: stri
 // The organize folder's file, written next to the pictures. tmp → rename, so
 // a crash mid-write keeps the previous file.
 export async function writeLibFile(root: string, p: Pack): Promise<void> {
-  for (const [file, data] of packFiles(root, p)) {
+  const files: [string, Buffer][] = [
+    [libFilePath(root), await gzipAsync(Buffer.from(JSON.stringify(p)))],
+    [mobileFilePath(root), await gzipAsync(Buffer.from(JSON.stringify(mobilePack(p))))]
+  ]
+  for (const [file, data] of files) {
     await fsp.mkdir(dirname(file), { recursive: true })
     const tmp = file + '.tmp'
     await fsp.writeFile(tmp, data)

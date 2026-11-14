@@ -15,6 +15,7 @@ import LearnView from './components/LearnView'
 import SettingsView from './components/SettingsView'
 import ProgressBar from './components/ProgressBar'
 import { GroupShotDialog, NewGroupDialog, TrashDialog } from './components/ImageMenu'
+import { arrowText } from './arrowText'
 
 const NAV: [View, string, typeof PhotoLibraryIcon][] = [
   ['library', '라이브러리', PhotoLibraryIcon],
@@ -157,10 +158,6 @@ function Main(): JSX.Element {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          <img className="brand-logo" src={logo} alt="" draggable={false} />
-          Sorta
-        </div>
         <nav className="flat-group nav">
           {NAV.map(([v, label, Icon]) => (
             <button key={v} className={`mini ${view === v ? 'on' : ''}`} onClick={() => setView(v)}>
@@ -191,7 +188,7 @@ function Main(): JSX.Element {
       <TrashDialog />
       <GroupShotDialog />
       {toast && (
-        <div className={`toast ${toast.ok ? '' : 'err'}`}>{toast.message}</div>
+        <div className={`toast ${toast.ok ? '' : 'err'}`}>{arrowText(toast.message)}</div>
       )}
     </div>
   )

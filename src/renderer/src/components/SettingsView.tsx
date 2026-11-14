@@ -4,12 +4,14 @@ import type { JSX } from 'react'
 import { blocking, useStore } from '../store'
 import { useKeptScroll } from '../keep'
 import { embedded } from '../embed'
-import type { AssistMode, ModelId, Thresholds } from '../../../shared/types'
+import { LLM_PRESETS } from '../../../shared/types'
+import type { AssistMode, LlmProvider, ModelId, Thresholds } from '../../../shared/types'
 import { AddIcon, CloseIcon, DeleteIcon, DownloadIcon, FolderOpenIcon, LanIcon, PlayIcon, RestartIcon, SaveAltIcon, SyncIcon } from './icons'
 import Stepper from './Stepper'
 import OrganizeCard from './OrganizeCard'
 import NasDialog from './NasDialog'
 import { DEFAULT_THRESHOLDS, DEFAULT_IGNORED } from '../../../shared/defaults'
+import { arrowText } from '../arrowText'
 
 // [key, label, description, step, min, max]
 const THRESHOLDS: [keyof Thresholds, string, string, number, number, number][] = [
@@ -453,26 +455,53 @@ export default function SettingsView(): JSX.Element {
             <div className="row-title">학습 그림 출처</div>
             <div className="row-desc">
               Danbooru는 자료가 가장 많고 민감 등급(수영복 등)까지 쓸 수 있습니다. 통신사 차단은 내장된 우회(Halftone과 같은 방식)로
-              접속하며, 접속이 안 되면 자동으로 Safebooru(전체연령만)를 씁니다.
+              접속하며, 접속이 안 되면 Gelbooru(API 키를 넣은 경우), 그다음 Safebooru(전체연령만) 순서로 씁니다.
             </div>
           </div>
           <div className="flat-group">
-            {(['danbooru', 'safebooru'] as const).map((v) => (
+            {(['danbooru', 'gelbooru', 'safebooru'] as const).map((v) => (
               <button
                 key={v}
                 className={`mini ${cur.booruSource === v ? 'on' : ''}`}
                 onClick={() => edit({ booruSource: v })}
               >
-                {v === 'danbooru' ? 'Danbooru' : 'Safebooru'}
+                {v === 'danbooru' ? 'Danbooru' : v === 'gelbooru' ? 'Gelbooru' : 'Safebooru'}
               </button>
             ))}
           </div>
         </div>
         <div className="row">
           <div className="row-text">
+            <div className="row-title">Gelbooru API 키</div>
+            <div className="row-desc">
+              Gelbooru는 API 키가 있어야 그림을 받을 수 있습니다. 무료 가입 후 계정 설정의 API Access Credentials에 나오는 user_id와
+              api_key를 넣습니다. 비워 두면 Gelbooru는 쓰지 않습니다.
+            </div>
+          </div>
+          <div className="gel-key">
+            <input
+              className="tag-input"
+              value={cur.gelbooruUserId}
+              placeholder="user_id"
+              spellCheck={false}
+              onChange={(e) => edit({ gelbooruUserId: e.target.value })}
+            />
+            <input
+              className="tag-input"
+              type="password"
+              value={cur.gelbooruApiKey}
+              placeholder="api_key"
+              spellCheck={false}
+              onChange={(e) => edit({ gelbooruApiKey: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="row">
+          <div className="row-text">
             <div className="row-title">민감 등급 그림도 학습에 사용</div>
             <div className="row-desc">
-              수영복·바니 같은 복장은 대부분 민감 등급입니다. 참고 그림은 특징만 뽑고 저장하지 않습니다. (Danbooru 전용)
+              수영복·바니 같은 복장은 대부분 민감 등급입니다. 그림이 부족한 캐릭터는 R-18 등급까지 넓혀서 받습니다. 참고 그림은
+              특징만 뽑고 저장하지 않습니다. (Danbooru · Gelbooru)
             </div>
           </div>
           <div className="flat-group">
@@ -529,6 +558,83 @@ export default function SettingsView(): JSX.Element {
             ))}
           </div>
         </div>
+      </section>
+
+      <section className="card">
+        <h2>LLM</h2>
+        <div className="row-desc">{arrowText('조직도 → 이미지로 불러오기에서 조직도 그림을 읽는 데 씁니다. 그림을 읽을 수 있는(비전) 모델이어야 합니다.')}</div>
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">공급자</div>
+            <div className="row-desc">
+              {cur.llmProvider === 'gemini'
+                ? 'Google AI Studio(aistudio.google.com)에서 API 키를 받습니다. 무료 사용량이 있습니다.'
+                : cur.llmProvider === 'ollama'
+                  ? '내 PC에서 돌리는 Ollama 서버입니다. 키가 필요 없습니다.'
+                  : cur.llmProvider === 'custom'
+                    ? 'OpenAI 호환 API의 주소와 모델을 직접 넣습니다.'
+                    : 'OpenAI 호환 API입니다. 공급자 사이트에서 API 키를 받습니다.'}
+            </div>
+          </div>
+          <div className="flat-group">
+            {(
+              [
+                ['gemini', 'Gemini'],
+                ['groq', 'Groq'],
+                ['openrouter', 'OpenRouter'],
+                ['mistral', 'Mistral'],
+                ['ollama', 'Ollama'],
+                ['custom', '직접 입력']
+              ] as [LlmProvider, string][]
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                className={`mini ${cur.llmProvider === v ? 'on' : ''}`}
+                onClick={() => edit({ llmProvider: v, ...(LLM_PRESETS[v] ?? {}) })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {cur.llmProvider !== 'ollama' && (
+          <div className="row">
+            <div className="row-text">
+              <div className="row-title">API 키</div>
+              <div className="row-desc">공급자마다 따로 저장합니다. 이 PC의 Sorta 데이터에만 저장하고 분류 정보 파일에는 넣지 않습니다.</div>
+            </div>
+            <input
+              className="tag-input llm-field"
+              type="password"
+              value={cur.llmKeys[cur.llmProvider] ?? ''}
+              placeholder="API 키"
+              spellCheck={false}
+              onChange={(e) => edit({ llmKeys: { ...cur.llmKeys, [cur.llmProvider]: e.target.value } })}
+            />
+          </div>
+        )}
+        <div className="row">
+          <div className="row-text">
+            <div className="row-title">모델</div>
+            <div className="row-desc">공급자를 고르면 기본 모델이 들어갑니다.</div>
+          </div>
+          <input className="tag-input llm-field" value={cur.llmModel} placeholder="모델 이름" spellCheck={false} onChange={(e) => edit({ llmModel: e.target.value })} />
+        </div>
+        {(cur.llmProvider === 'ollama' || cur.llmProvider === 'custom') && (
+          <div className="row">
+            <div className="row-text">
+              <div className="row-title">Base URL</div>
+              <div className="row-desc">OpenAI 호환 주소 (…/v1)</div>
+            </div>
+            <input
+              className="tag-input llm-field"
+              value={cur.llmBaseUrl}
+              placeholder="https://…/v1"
+              spellCheck={false}
+              onChange={(e) => edit({ llmBaseUrl: e.target.value })}
+            />
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -757,9 +863,6 @@ export default function SettingsView(): JSX.Element {
               <br />이 폴더의 그림 {removing.count}장도 라이브러리에서 뺍니다. 분류 · 확정 정보도 함께 지워지고, 원본 파일은 그대로 둡니다. 정리 폴더로 옮겨진 그림은 남습니다.
             </div>
             <div className="modal-foot">
-              <button className="btn" disabled={removing.busy} onClick={() => setRemoving(null)}>
-                취소
-              </button>
               <button
                 className="btn danger"
                 autoFocus
@@ -769,6 +872,9 @@ export default function SettingsView(): JSX.Element {
               >
                 <DeleteIcon />
                 제거
+              </button>
+              <button className="btn" disabled={removing.busy} onClick={() => setRemoving(null)}>
+                취소
               </button>
             </div>
           </div>
@@ -792,14 +898,14 @@ export default function SettingsView(): JSX.Element {
             </div>
             <div className="row-desc">설정을 저장하고 나갈까요?</div>
             <div className="modal-foot">
-              <button className="btn" onClick={clearPendingNav}>
-                닫기
+              <button className="btn primary" autoFocus onClick={() => void leaveSave()} onKeyDown={(e) => e.key === 'Escape' && clearPendingNav()}>
+                저장
               </button>
               <button className="btn" onClick={leaveDiscard}>
                 저장하지 않기
               </button>
-              <button className="btn primary" autoFocus onClick={() => void leaveSave()} onKeyDown={(e) => e.key === 'Escape' && clearPendingNav()}>
-                저장
+              <button className="btn" onClick={clearPendingNav}>
+                닫기
               </button>
             </div>
           </div>

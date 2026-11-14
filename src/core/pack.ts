@@ -10,9 +10,11 @@
 // folder (`files`, paths relative to that folder) and the picture groups —
 // the 정리 폴더 file (libfile.ts) and a full export. Readers that only want the
 // games / characters ignore them.
-import { gunzipSync, gzipSync } from 'zlib'
+import { promisify } from 'util'
+import { gunzip, gzip } from 'zlib'
 import { relative, resolve, sep } from 'path'
 import type { Db } from './db'
+import { nameTaken } from './names'
 import type { ActionLog } from './actionLog'
 import type { PackExportOptions, PackPreview } from '../shared/types'
 
@@ -21,6 +23,8 @@ export const PACK_VERSION = 2
 export const EMBED_MODEL = 'ccip-caformer-24-randaug-pruned'
 export const PACK_ACTION = 'pack.import'
 
+const display = (d: string | null): { display?: string } => (d ? { display: d } : {})
+
 interface PackRef {
   src: 'booru' | 'user' | 'shared' // shared = came from another pack
   post?: number
@@ -28,7 +32,8 @@ interface PackRef {
 }
 interface PackCharacter {
   key: string
-  name: string
+  name: string // system name
+  display?: string // 표시 이름
   aliases: string[]
   tag: string | null
   parent: string | null // base character key (outfit version)
@@ -38,12 +43,14 @@ interface PackCharacter {
 interface PackAffiliation {
   key: string
   name: string
+  display?: string
   aliases: string[]
   parent: string | null
   order: number
 }
 interface PackSeries {
   name: string
+  display?: string
   aliases: string[]
   tag: string | null
   wiki: string | null
@@ -61,7 +68,7 @@ export interface PackFile {
   rs: string // rating source: auto | user
   score: number | null // rating score
   rr: number // borderline rating → 등급 확인
-  kind: string // character | other | unknown
+  kind: string // character | other | original | unknown
   fav: number
   stars: number
   go: number // 단체 사진으로만 분류
@@ -139,8 +146,13 @@ function vectorId(s: string): number {
 
 // ---- export ----
 
-export function exportPack(db: Db, appVersion: string, o: PackExportOptions): Buffer {
-  return gzipSync(Buffer.from(JSON.stringify(buildPack(db, appVersion, o))))
+// zlib on the thread pool: a big pack takes seconds to (un)compress, which
+// froze the window when done on the main thread.
+export const gzipAsync = promisify(gzip)
+const gunzipAsync = promisify(gunzip)
+
+export function exportPack(db: Db, appVersion: string, o: PackExportOptions): Promise<Buffer> {
+  return gzipAsync(Buffer.from(JSON.stringify(buildPack(db, appVersion, o))))
 }
 
 export function buildPack(db: Db, appVersion: string, o: PackExportOptions): Pack {
@@ -149,18 +161,19 @@ export function buildPack(db: Db, appVersion: string, o: PackExportOptions): Pac
   // With pictures, my own references travel with their picture (`files`).
   const userRefs = o.includeUserRefs && !o.filesRoot
   const series = db
-    .prepare(`SELECT id, name, aliases, danbooru_copyright_tag AS tag, wiki FROM series ${only ? `WHERE id IN (${only.map(() => '?').join(',') || 'NULL'})` : ''} ORDER BY name`)
-    .all(...(only ?? [])) as { id: number; name: string; aliases: string; tag: string | null; wiki: string | null }[]
+    .prepare(`SELECT id, name, display_name, aliases, danbooru_copyright_tag AS tag, wiki FROM series ${only ? `WHERE id IN (${only.map(() => '?').join(',') || 'NULL'})` : ''} ORDER BY name`)
+    .all(...(only ?? [])) as { id: number; name: string; display_name: string | null; aliases: string; tag: string | null; wiki: string | null }[]
   const out: Pack = { format: PACK_FORMAT, version: PACK_VERSION, app: appVersion, createdAt: Date.now(), embedModel: EMBED_MODEL, dim: 768, series: [] }
-  const affQ = db.prepare('SELECT id, name, aliases, parent_id, sort_order FROM affiliations WHERE series_id = ? ORDER BY sort_order, id')
-  const charQ = db.prepare('SELECT id, name, aliases, danbooru_tag, parent_id, affiliation_id FROM characters WHERE series_id = ? ORDER BY id')
+  const affQ = db.prepare('SELECT id, name, display_name, aliases, parent_id, sort_order FROM affiliations WHERE series_id = ? ORDER BY sort_order, id')
+  const charQ = db.prepare('SELECT id, name, display_name, aliases, danbooru_tag, parent_id, affiliation_id FROM characters WHERE series_id = ? ORDER BY id')
   const learnedQ = db.prepare('SELECT tag, learned_at FROM learned WHERE character_id = ?')
   const refsQ = db.prepare(`SELECT source, post_id, vector FROM refs WHERE character_id = ? ${userRefs ? '' : "AND source = 'booru'"}`)
   for (const s of series) {
-    const affs = affQ.all(s.id) as { id: number; name: string; aliases: string; parent_id: number | null; sort_order: number }[]
+    const affs = affQ.all(s.id) as { id: number; name: string; display_name: string | null; aliases: string; parent_id: number | null; sort_order: number }[]
     const chars = charQ.all(s.id) as {
       id: number
       name: string
+      display_name: string | null
       aliases: string
       danbooru_tag: string | null
       parent_id: number | null
@@ -169,16 +182,18 @@ export function buildPack(db: Db, appVersion: string, o: PackExportOptions): Pac
     const charIds = new Set(chars.map((c) => c.id))
     const ps: PackSeries = {
       name: s.name,
+      ...display(s.display_name),
       aliases: JSON.parse(s.aliases),
       tag: s.tag,
       wiki: s.wiki,
-      affiliations: affs.map((a) => ({ key: `a${a.id}`, name: a.name, aliases: JSON.parse(a.aliases), parent: a.parent_id ? `a${a.parent_id}` : null, order: a.sort_order })),
+      affiliations: affs.map((a) => ({ key: `a${a.id}`, name: a.name, ...display(a.display_name), aliases: JSON.parse(a.aliases), parent: a.parent_id ? `a${a.parent_id}` : null, order: a.sort_order })),
       characters: []
     }
     for (const c of chars) {
       const pc: PackCharacter = {
         key: `c${c.id}`,
         name: c.name,
+        ...display(c.display_name),
         aliases: JSON.parse(c.aliases),
         tag: c.danbooru_tag,
         parent: c.parent_id && charIds.has(c.parent_id) ? `c${c.parent_id}` : null,
@@ -228,7 +243,7 @@ function packFiles(db: Db, root: string, roots: string[], seriesIds: number[], l
   const charKey = (id: number | null): string | null => (id === null ? null : `c${id}`)
   const imgs = db
     .prepare(
-      `SELECT id, path, sha256, file_size, rating, rating_source, rating_score, rating_review, kind, favorite, stars,
+      `SELECT id, path, sha256, file_size, rating, rating_source, rating_score, rating_review, kind, original, favorite, stars,
               group_only, group_series_id, set_aside, classified_at, tag_json, embedded_at
        FROM images ORDER BY id`
     )
@@ -242,6 +257,7 @@ function packFiles(db: Db, root: string, roots: string[], seriesIds: number[], l
     rating_score: number | null
     rating_review: number
     kind: string
+    original: number
     favorite: number
     stars: number
     group_only: number
@@ -276,7 +292,7 @@ function packFiles(db: Db, root: string, roots: string[], seriesIds: number[], l
       rs: i.rating_source,
       score: i.rating_score,
       rr: i.rating_review,
-      kind: i.kind,
+      kind: i.original ? 'original' : i.kind,
       fav: i.favorite,
       stars: i.stars,
       go: i.group_only,
@@ -312,14 +328,10 @@ function packFiles(db: Db, root: string, roots: string[], seriesIds: number[], l
   return out
 }
 
-export function readPack(buf: Buffer): Pack {
-  return parsePack(buf)
-}
-
-function parsePack(buf: Buffer): Pack {
+export async function readPack(buf: Buffer): Promise<Pack> {
   let p: Pack
   try {
-    p = JSON.parse(gunzipSync(buf).toString('utf8')) as Pack
+    p = JSON.parse((await gunzipAsync(buf)).toString('utf8')) as Pack
   } catch {
     throw new Error('Sorta 공유 파일이 아닙니다')
   }
@@ -412,23 +424,28 @@ export function planImport(
   const useLearned = o.learned && !pv.modelMismatch
   // Dry matching for the preview.
   const seriesByKey = (s: PackSeries): { id: number; name: string } | undefined => {
-    const rows = db.prepare('SELECT id, name, aliases, danbooru_copyright_tag AS tag FROM series').all() as { id: number; name: string; aliases: string; tag: string | null }[]
+    const rows = db.prepare('SELECT id, name, display_name, aliases, danbooru_copyright_tag AS tag FROM series').all() as {
+      id: number
+      name: string
+      display_name: string | null
+      aliases: string
+      tag: string | null
+    }[]
+    const names = [s.name, s.display ?? ''].filter(Boolean).map(lower)
     return rows.find(
-      (r) =>
-        lower(r.name) === lower(s.name) ||
-        (s.tag && r.tag === s.tag) ||
-        (JSON.parse(r.aliases) as string[]).some((a) => lower(a) === lower(s.name))
+      (r) => (s.tag && r.tag === s.tag) || [r.name, r.display_name ?? '', ...(JSON.parse(r.aliases) as string[])].some((x) => x && names.includes(lower(x)))
     )
   }
   const affByName = (sid: number, a: PackAffiliation): { id: number; parent_id: number | null; name: string } | undefined => {
-    const rows = db.prepare('SELECT id, name, aliases, parent_id FROM affiliations WHERE series_id = ?').all(sid) as {
+    const rows = db.prepare('SELECT id, name, display_name, aliases, parent_id FROM affiliations WHERE series_id = ?').all(sid) as {
       id: number
       name: string
+      display_name: string | null
       aliases: string
       parent_id: number | null
     }[]
-    const names = [a.name, ...a.aliases].map(lower)
-    return rows.find((r) => [r.name, ...(JSON.parse(r.aliases) as string[])].some((x) => names.includes(lower(x))))
+    const names = [a.name, a.display ?? '', ...a.aliases].filter(Boolean).map(lower)
+    return rows.find((r) => [r.name, r.display_name ?? '', ...(JSON.parse(r.aliases) as string[])].some((x) => x && names.includes(lower(x))))
   }
   const charMatch = (sid: number | null, c: PackCharacter): { id: number; name: string; affiliation_id: number | null } | undefined => {
     if (c.tag) {
@@ -438,14 +455,15 @@ export function planImport(
       if (r) return r
     }
     if (sid === null) return undefined
-    const rows = db.prepare('SELECT id, name, aliases, affiliation_id FROM characters WHERE series_id = ?').all(sid) as {
+    const rows = db.prepare('SELECT id, name, display_name, aliases, affiliation_id FROM characters WHERE series_id = ?').all(sid) as {
       id: number
       name: string
+      display_name: string | null
       aliases: string
       affiliation_id: number | null
     }[]
-    const names = [c.name, ...c.aliases].map(lower)
-    return rows.find((r) => [r.name, ...(JSON.parse(r.aliases) as string[])].some((x) => names.includes(lower(x))))
+    const names = [c.name, c.display ?? '', ...c.aliases].filter(Boolean).map(lower)
+    return rows.find((r) => [r.name, r.display_name ?? '', ...(JSON.parse(r.aliases) as string[])].some((x) => x && names.includes(lower(x))))
   }
   for (const s of pack.series) {
     const ms = seriesByKey(s)
@@ -487,6 +505,14 @@ export function planImport(
     snap(table, id)
     db.prepare(`UPDATE ${table} SET aliases = ? WHERE id = ?`).run(JSON.stringify([...cur, ...add]), id)
   }
+  // The file's 표시 이름 where mine has none (and nothing else goes by it).
+  const takeDisplay = (table: 'series' | 'affiliations' | 'characters', id: number, d: string | undefined, sid?: number): void => {
+    if (!d) return
+    const r = db.prepare(`SELECT name, display_name FROM ${table} WHERE id = ?`).get(id) as { name: string; display_name: string | null }
+    if (r.display_name !== null || d === r.name || nameTaken(db, table, d, id, sid)) return
+    snap(table, id)
+    db.prepare(`UPDATE ${table} SET display_name = ? WHERE id = ?`).run(d, id)
+  }
 
   const run = (): void => {
     db.transaction(() => {
@@ -500,6 +526,7 @@ export function planImport(
               .run(s.name, JSON.stringify(s.aliases), s.tag, s.wiki, Date.now()).lastInsertRowid
           )
           payload.created.series.push(sid)
+          if (s.display && !nameTaken(db, 'series', s.display, sid)) db.prepare('UPDATE series SET display_name = ? WHERE id = ?').run(s.display, sid)
         } else {
           keys.series.push(sid)
           const cur = db.prepare('SELECT wiki, danbooru_copyright_tag AS tag FROM series WHERE id = ?').get(sid) as { wiki: string | null; tag: string | null }
@@ -508,6 +535,7 @@ export function planImport(
             db.prepare('UPDATE series SET wiki = COALESCE(wiki, ?), danbooru_copyright_tag = COALESCE(danbooru_copyright_tag, ?) WHERE id = ?').run(s.wiki, s.tag, sid)
           }
           unionAliases('series', sid, s.aliases, s.name)
+          takeDisplay('series', sid, s.display)
         }
         // 소속, parents first
         const affId = new Map<string, number>()
@@ -528,9 +556,11 @@ export function planImport(
             )
             payload.created.affiliations.push(id)
             affId.set(a.key, id)
+            if (a.display && !nameTaken(db, 'affiliations', a.display, id, sid)) db.prepare('UPDATE affiliations SET display_name = ? WHERE id = ?').run(a.display, id)
           } else {
             affId.set(a.key, m.id)
             unionAliases('affiliations', m.id, a.aliases, a.name)
+            takeDisplay('affiliations', m.id, a.display, sid)
             if (o.overwrite && m.parent_id !== parent && !isBelow(db, parent, m.id)) {
               snap('affiliations', m.id)
               db.prepare('UPDATE affiliations SET parent_id = ?, sort_order = ? WHERE id = ?').run(parent, a.order, m.id)
@@ -551,8 +581,10 @@ export function planImport(
                 .run(sid, aff, uniqueName(db, sid, c.name), JSON.stringify(c.aliases), c.tag, parent, Date.now()).lastInsertRowid
             )
             payload.created.characters.push(id)
+            if (c.display && !nameTaken(db, 'characters', c.display, id, sid)) db.prepare('UPDATE characters SET display_name = ? WHERE id = ?').run(c.display, id)
           } else {
             unionAliases('characters', id, c.aliases, c.name)
+            takeDisplay('characters', id, c.display, sid)
             const cur = db.prepare('SELECT affiliation_id, parent_id FROM characters WHERE id = ?').get(id) as { affiliation_id: number | null; parent_id: number | null }
             const setAff = aff !== null && (cur.affiliation_id === null || (o.overwrite && cur.affiliation_id !== aff))
             const setParent = parent !== null && cur.parent_id === null && parent !== id

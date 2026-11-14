@@ -35,7 +35,8 @@ export function safeMode(img: ImageItem, s: Settings | null): 'show' | 'blur' | 
 export function charLabel(img: ImageItem): string {
   const named = img.characters.filter((c) => c.name)
   if (named.length) return named.map((c) => c.name).join(', ')
-  if (img.kind === 'other') return '캐릭터 아닌 그림'
+  if (img.kind === 'original') return '오리지널'
+  if (img.kind === 'other') return '기타'
   if (img.kind === 'group') return img.groupSeries ? `단체 사진 · ${img.groupSeries}` : '단체 사진'
   return img.characters.length ? '미확인' : '분류 전'
 }

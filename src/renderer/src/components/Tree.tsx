@@ -2,9 +2,10 @@
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import { useKept } from '../keep'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ContextMenu from './ContextMenu'
-import { AddIcon, ContentCopyIcon, DeleteIcon, EditIcon, PersonOffIcon, RestartIcon } from './icons'
+import DropMenu, { MenuOption } from './DropMenu'
+import { AddIcon, ContentCopyIcon, DeleteIcon, EditIcon, PersonOffIcon, RestartIcon, SortIcon } from './icons'
 import { copyText, setIgnored } from '../collect'
 import type { LibraryNode, LibraryTree, TreeAffiliation, TreeCharacter } from '../../../shared/types'
 import { ArrowDownIcon, KeyboardArrowRightIcon } from './icons'
@@ -15,6 +16,26 @@ const NO_TAGS: string[] = []
 const same = (a: LibraryNode, b: LibraryNode): boolean =>
   a.type === b.type && ('id' in a ? a.id : 0) === ('id' in b ? b.id : 0)
 const nodeKey = (n: LibraryNode): string => `${n.type}:${'id' in n ? n.id : ''}`
+
+const TREE_SORTS = [
+  ['name', '이름순'],
+  ['count', '개수순']
+] as const
+
+// 개수순: most pictures first (ties keep the name order the tree comes in).
+// Games and characters move; 소속 keep their 조직도 order.
+function byCount(tree: LibraryTree): LibraryTree['series'] {
+  const desc = <T extends { count: number | null }>(list: T[]): T[] => [...list].sort((a, b) => (b.count ?? -1) - (a.count ?? -1))
+  const affs = (list: TreeAffiliation[]): TreeAffiliation[] =>
+    list.map((a) => ({ ...a, children: affs(a.children), characters: desc(a.characters) }))
+  return desc(tree.series).map((s) => ({ ...s, affiliations: affs(s.affiliations), characters: desc(s.characters) }))
+}
+
+// 분류된 캐릭터 수: base characters (outfit versions count with their character).
+function charCount(tree: LibraryTree): number {
+  const affs = (list: TreeAffiliation[]): number => list.reduce((n, a) => n + a.characters.length + affs(a.children), 0)
+  return tree.series.reduce((n, s) => n + s.characters.length + affs(s.affiliations), 0)
+}
 
 // Collapse keys (games by id, 소속 by -id) above a node, or null if absent.
 function ancestors(tree: LibraryTree, n: LibraryNode): number[] | null {
@@ -52,6 +73,10 @@ export default function Tree(): JSX.Element {
     setCharMenu({ x: e.clientX, y: e.clientY, name, tag: tag ?? null })
   }
   const showToast = useStore((s) => s.showToast)
+  const treeSort = useStore((s) => s.settings?.treeSort) ?? 'name'
+  const saveSettings = useStore((s) => s.saveSettings)
+  const series = useMemo(() => (!tree ? [] : treeSort === 'count' ? byCount(tree) : tree.series), [tree, treeSort])
+  const chars = useMemo(() => (tree ? charCount(tree) : 0), [tree])
 
   // Search pick → open the collapsed levels above it, then scroll to it and
   // flash it (the same pulse as the 조직도 search).
@@ -114,15 +139,17 @@ export default function Tree(): JSX.Element {
       {open ? <ArrowDownIcon /> : <KeyboardArrowRightIcon />}
     </button>
   )
+  // Each level 8px further in than its parent's text (game text at 33px:
+  // caret 22 + border 1 + padding 10); characters right under a game too.
   const charItems = (list: TreeCharacter[], depth: number): JSX.Element[] =>
     list.map((ch) => (
       <div key={ch.id}>
         <div onContextMenu={(e) => openCharMenu(e, ch.name, ch.tag)}>
-          {item({ type: 'character', id: ch.id }, ch.name, ch.count, ch.shown, 'char', 34 + depth * 16)}
+          {item({ type: 'character', id: ch.id }, ch.name, ch.count, ch.shown, 'char', 32 + depth * 8)}
         </div>
         {ch.children?.map((v) => (
           <div key={v.id} onContextMenu={(e) => openCharMenu(e, v.name, v.tag)}>
-            {item({ type: 'character', id: v.id }, v.name, v.count, v.shown, 'variant', 52 + depth * 16)}
+            {item({ type: 'character', id: v.id }, v.name, v.count, v.shown, 'variant', 40 + depth * 8)}
           </div>
         ))}
       </div>
@@ -133,7 +160,7 @@ export default function Tree(): JSX.Element {
       const open = !closed.has(-a.id)
       return (
         <div key={`a${a.id}`}>
-          <div className="tree-row" style={{ paddingLeft: depth * 16 }}>
+          <div className="tree-row" style={{ paddingLeft: depth * 8 }}>
             {caret(-a.id, open)}
             {item({ type: 'affiliation', id: a.id }, a.name, a.count, a.shown, 'aff')}
           </div>
@@ -184,8 +211,22 @@ export default function Tree(): JSX.Element {
         />
       )}
       <div className="tree-sep" />
+      {tree.series.length > 0 && (
+        <div className="tree-sort">
+          <DropMenu icon={<SortIcon />} label={`정렬: ${TREE_SORTS.find(([k]) => k === treeSort)?.[1] ?? ''}`}>
+            {(close) =>
+              TREE_SORTS.map(([k, l]) => (
+                <MenuOption key={k} on={treeSort === k} onClick={() => (void saveSettings({ treeSort: k }), close())}>
+                  {l}
+                </MenuOption>
+              ))
+            }
+          </DropMenu>
+          <span className="tree-total">총 {chars.toLocaleString()}명</span>
+        </div>
+      )}
       {tree.series.length === 0 && <div className="tree-empty">아직 분류된 캐릭터가 없습니다.</div>}
-      {tree.series.map((s) => {
+      {series.map((s) => {
         const open = !closed.has(s.id)
         return (
           <div key={s.id} className="tree-group">
@@ -196,8 +237,8 @@ export default function Tree(): JSX.Element {
             {open && (
               <>
                 {affItems(s.affiliations, 1)}
-                {charItems(s.characters, 0)}
-                {!!s.groupShots && item({ type: 'groupShot', id: s.id }, '단체 사진', s.groupShots, s.groupShotsShown, 'char group-shot', 34)}
+                {charItems(s.characters, 1)}
+                {!!s.groupShots && item({ type: 'groupShot', id: s.id }, '단체 사진', s.groupShots, s.groupShotsShown, 'char group-shot', 40)}
               </>
             )}
           </div>
@@ -208,7 +249,8 @@ export default function Tree(): JSX.Element {
       {item({ type: 'ratingReview' }, '등급 확인', c.ratingReview, f?.ratingReview)}
       {item({ type: 'unknown' }, '미확인', c.unknown, f?.unknown)}
       {item({ type: 'groupShot' }, '단체 사진', c.groupShot, f?.groupShot)}
-      {item({ type: 'other' }, '캐릭터 아닌 그림', c.other, f?.other)}
+      {item({ type: 'original' }, '오리지널', c.original, f?.original)}
+      {item({ type: 'other' }, '기타', c.other, f?.other)}
       {item({ type: 'unclassified' }, '분류 전', c.unclassified, f?.unclassified)}
       <div className="tree-sep" />
       {item({ type: 'dups' }, '중복 의심', tree.dups)}

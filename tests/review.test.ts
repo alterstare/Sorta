@@ -152,6 +152,24 @@ describe('decisions + undo', () => {
     core.close()
   })
 
+  it('오리지널 and 기타 are separate', async () => {
+    const core = await setup()
+    const b = idOf(core, 'b.png')
+    const list = (type: 'original' | 'other'): { id: number; kind: string }[] =>
+      core.images({ node: { type }, ratings: ['general', 'sensitive', 'r18'], sort: 'date', dir: 'desc', q: '' }).map((i) => ({ id: i.id, kind: i.kind }))
+    core.markOther([b], true)
+    expect(list('original')).toEqual([{ id: b, kind: 'original' }])
+    expect(list('other')).toEqual([])
+    core.markOther([b], false)
+    expect(list('original')).toEqual([])
+    expect(list('other')).toEqual([{ id: b, kind: 'other' }])
+    await core.undo() // back to 오리지널
+    expect(list('original')).toEqual([{ id: b, kind: 'original' }])
+    core.confirmCharacters([b], [core.createCharacter('Aoi', 'Blue Archive')])
+    expect(list('original')).toEqual([])
+    core.close()
+  })
+
   it('new characters and search', async () => {
     const core = await setup()
     const id = core.createCharacter('Aoi', 'Blue Archive')

@@ -5,7 +5,7 @@ import type { JSX } from 'react'
 import { useStore } from '../store'
 import type { ImageItem, Rating } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
-import { CheckIcon, CloseIcon, GroupsIcon, PersonOffIcon } from './icons'
+import { CheckIcon, CloseIcon, FaceIcon, GroupsIcon, LandscapeIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
 
 const RATINGS: Exclude<Rating, 'unknown'>[] = ['general', 'sensitive', 'r18']
@@ -31,7 +31,7 @@ export default function EditBar({ img }: { img: ImageItem }): JSX.Element {
             </button>
           </span>
         ))}
-        {sorted.length === 0 && <span className="edit-none">{img.kind === 'other' ? '캐릭터 아닌 그림' : img.kind === 'group' ? (img.groupSeries ? `단체 사진 · ${img.groupSeries}` : '단체 사진') : '미지정'}</span>}
+        {sorted.length === 0 && <span className="edit-none">{img.kind === 'original' ? '오리지널' : img.kind === 'other' ? '기타' : img.kind === 'group' ? (img.groupSeries ? `단체 사진 · ${img.groupSeries}` : '단체 사진') : '미지정'}</span>}
         {hasAuto && (
           <div className="flat-group">
             <button className="mini" title="자동 분류 결과가 맞다고 확정" onClick={() => void window.api.confirmCharacters([img.id], ids)}>
@@ -63,9 +63,13 @@ export default function EditBar({ img }: { img: ImageItem }): JSX.Element {
             <GroupsIcon />
             단체 사진
           </button>
-          <button className={`mini ${img.kind === 'other' ? 'on' : ''}`} onClick={() => void window.api.markOther([img.id])}>
-            <PersonOffIcon />
-            캐릭터 아닌 그림
+          <button className={`mini ${img.kind === 'original' ? 'on' : ''}`} title="이름 없는 오리지널 캐릭터" onClick={() => void window.api.markOther([img.id], true)}>
+            <FaceIcon />
+            오리지널
+          </button>
+          <button className={`mini ${img.kind === 'other' ? 'on' : ''}`} title="풍경 등 인물이 없는 그림" onClick={() => void window.api.markOther([img.id], false)}>
+            <LandscapeIcon />
+            기타
           </button>
         </div>
       </div>

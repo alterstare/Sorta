@@ -17,7 +17,8 @@ export function isImageFile(p: string): boolean {
 }
 
 // Path comparison is case-insensitive on Windows only.
-const norm = (p: string): string => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p))
+export const normPath = (p: string): string => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p))
+const norm = normPath
 
 export function isInside(child: string, parent: string): boolean {
   const c = norm(child)

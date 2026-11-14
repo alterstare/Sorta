@@ -38,10 +38,33 @@ export interface NetResponse {
   bytes: () => Promise<Buffer>
 }
 
+// Cloudflare's check ("Just a moment…": 403 + `cf-mitigated: challenge`) needs
+// a browser, which Node isn't. The host (Electron) can pass a GET that goes
+// through a browser session where the user clears the check by hand; a host
+// that challenged once goes straight there from then on.
+export type BrowserGet = (url: string, signal?: AbortSignal) => Promise<NetResponse>
+let browserGet: BrowserGet | null = null
+const viaBrowser = new Set<string>()
+export function setBrowserGet(get: BrowserGet | null): void {
+  browserGet = get
+  viaBrowser.clear()
+}
+
+// The check wasn't cleared (window closed / timed out): stop the job instead
+// of asking again for every request.
+export class ChallengeError extends Error {}
+
 // GET through the tunnel (viaTunnel) or directly.
 export async function netGet(url: string, headers: Record<string, string>, viaTunnel: boolean, signal?: AbortSignal): Promise<NetResponse> {
+  const host = new URL(url).hostname
+  if (browserGet && viaBrowser.has(host)) return browserGet(url, signal)
   const { fetch } = await import('undici')
   const res = await fetch(url, { headers, signal, dispatcher: viaTunnel ? await tunnelAgent() : undefined })
+  if (browserGet && res.status === 403 && res.headers.get('cf-mitigated') === 'challenge') {
+    void res.body?.cancel().catch(() => {})
+    viaBrowser.add(host)
+    return browserGet(url, signal)
+  }
   return {
     ok: res.ok,
     status: res.status,

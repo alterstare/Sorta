@@ -14,7 +14,10 @@ export default function ProgressBar(): JSX.Element {
     <footer className="statusbar">
       {cur ? (
         <>
-          <span className="status-label">{cur.label}</span>
+          <span className="status-label">
+            {cur.label}
+            {cur.detail && <span className="status-detail"> · {cur.detail}{cur.step ? ` ${cur.step.done.toLocaleString()} / ${cur.step.total.toLocaleString()}` : ''}</span>}
+          </span>
           <div className={`bar ${pct === null ? 'indeterminate' : ''}`}>
             <div className="bar-fill" style={pct === null ? undefined : { width: `${pct}%` }} />
           </div>

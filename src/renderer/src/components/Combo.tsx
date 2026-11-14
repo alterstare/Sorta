@@ -75,7 +75,9 @@ export function ComboInput({
   onChange,
   onEnter,
   placeholder,
-  className = ''
+  className = '',
+  typed = false,
+  suffix
 }: {
   value: string
   options: string[]
@@ -83,6 +85,8 @@ export function ComboInput({
   onEnter?: () => void // Enter with no suggestion picked
   placeholder?: string
   className?: string
+  typed?: boolean // a plain input: matches show only while typing, no list arrow
+  suffix?: ReactNode // at the box's right end (e.g. a status)
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [all, setAll] = useState(false) // opened by the arrow: every option, not just matches
@@ -90,7 +94,7 @@ export function ComboInput({
   const ref = useOutside(open, () => setOpen(false))
   const listRef = useRef<HTMLDivElement>(null)
   const t = value.trim().toLowerCase()
-  const hits = all || !t ? options : options.filter((o) => o.toLowerCase().includes(t))
+  const hits = all || !t ? (typed ? [] : options) : options.filter((o) => o.toLowerCase().includes(t) && (!typed || o.toLowerCase() !== t))
   const shown = open && hits.length > 0
   useEffect(() => {
     listRef.current?.children[sel]?.scrollIntoView({ block: 'nearest' })
@@ -112,7 +116,7 @@ export function ComboInput({
             setOpen(true)
             setSel(-1)
           }}
-          onFocus={() => (setAll(false), setOpen(true))}
+          onFocus={() => (setAll(false), setOpen(!typed))}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
@@ -128,20 +132,23 @@ export function ComboInput({
             }
           }}
         />
-        <button
-          type="button"
-          className="combo-arrow"
-          tabIndex={-1}
-          title="목록"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            setAll(true)
-            setOpen((o) => !o)
-            setSel(-1)
-          }}
-        >
-          <Caret up={shown} />
-        </button>
+        {suffix}
+        {!typed && (
+          <button
+            type="button"
+            className="combo-arrow"
+            tabIndex={-1}
+            title="목록"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setAll(true)
+              setOpen((o) => !o)
+              setSel(-1)
+            }}
+          >
+            <Caret up={shown} />
+          </button>
+        )}
       </div>
       {shown && (
         <div className="combo-list" ref={listRef}>

@@ -23,8 +23,14 @@ export const DEFAULT_SETTINGS: Settings = {
   learnMinPosts: 20,
   booruSource: 'danbooru',
   learnSensitive: true,
+  gelbooruUserId: '',
+  gelbooruApiKey: '',
   useGpu: true,
   allowWebLookup: false,
+  llmProvider: 'gemini',
+  llmKeys: {},
+  llmModel: 'gemini-2.5-flash',
+  llmBaseUrl: '',
   allowImageSearch: false,
   autoUpdate: true,
   theme: 'light',
@@ -36,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
   libSort: 'date',
   libDir: 'desc',
   libLayout: 'grid',
+  treeSort: 'name',
   thumbSize: 'm'
 }
 

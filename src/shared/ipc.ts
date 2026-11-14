@@ -9,6 +9,10 @@ import type {
   DupGroup,
   RatingPick,
   OrgChart,
+  OrgImportNode,
+  OrgImportPreview,
+  NameChange,
+  NamePlan,
   WikiLookupResult,
   GameOption,
   LearnedCharacter,
@@ -87,6 +91,7 @@ export const IPC = {
   learnRefresh: 'sorta:learn:refresh',
   learnPlan: 'sorta:learn:plan',
   learn: 'sorta:learn:run',
+  learnFolder: 'sorta:learn:folder',
   booruTags: 'sorta:learn:booruTags',
   learned: 'sorta:learn:list',
   forgetLearned: 'sorta:learn:forget',
@@ -96,6 +101,7 @@ export const IPC = {
   characters: 'sorta:manage:characters',
   affiliations: 'sorta:manage:affiliations',
   renameCharacter: 'sorta:manage:rename',
+  setSystemName: 'sorta:manage:systemName',
   setAliases: 'sorta:manage:aliases',
   setSeries: 'sorta:manage:series',
   setAffiliation: 'sorta:manage:affiliation',
@@ -109,6 +115,15 @@ export const IPC = {
   placeCharacters: 'sorta:org:place',
   setWiki: 'sorta:org:wiki',
   applyAffiliations: 'sorta:org:apply',
+  orgImportLink: 'sorta:org:importLink',
+  orgImportImage: 'sorta:org:importImage',
+  orgImportApply: 'sorta:org:importApply',
+  gameDataSite: 'sorta:names:site',
+  namesFromGameData: 'sorta:names:gameData',
+  namesFromRoster: 'sorta:names:roster',
+  namesForTitles: 'sorta:names:titles',
+  namesForSmallGames: 'sorta:names:smallGames',
+  applyNames: 'sorta:names:apply',
   wikiLookup: 'sorta:org:lookup',
   openUrl: 'sorta:app:openUrl',
   // embedding: the renderer asks whether the data folder is free (another app
@@ -178,7 +193,7 @@ export interface Api {
   reviewQueue: (kind: ReviewKind) => Promise<ReviewItem[]>
   confirmCharacters: (imageIds: number[], characterIds: number[]) => Promise<void>
   addCharacter: (imageId: number, characterId: number) => Promise<void>
-  markOther: (imageIds: number[]) => Promise<void>
+  markOther: (imageIds: number[], original?: boolean) => Promise<void> // original: 오리지널, else 기타
   markGroup: (imageIds: number[], series: string | null) => Promise<void> // 단체 사진으로만 분류 (game or null)
   setRating: (imageIds: number[], rating: Exclude<Rating, 'unknown'>) => Promise<void>
   createCharacter: (name: string, series: string) => Promise<number>
@@ -201,6 +216,8 @@ export interface Api {
   learnRefresh: () => Promise<JobSummary>
   learnPlan: (seriesTag: string) => Promise<LearnPlanInfo>
   learn: (tags: string[]) => Promise<JobSummary>
+  // 직접 학습: a character from a folder of the user's own pictures of it
+  learnFolder: (dir: string, characterId: number) => Promise<JobSummary>
   booruTags: (q: string) => Promise<{ name: string; post_count: number }[]>
   learned: () => Promise<LearnedCharacter[]>
   forgetLearned: (characterId: number) => Promise<void>
@@ -210,7 +227,8 @@ export interface Api {
   organize: () => Promise<JobSummary>
   characters: () => Promise<ManagedCharacter[]>
   affiliations: (series: string) => Promise<string[]>
-  renameCharacter: (id: number, name: string) => Promise<void>
+  renameCharacter: (id: number, name: string) => Promise<void> // the shown name (system name too while untranslated)
+  setSystemName: (id: number, name: string) => Promise<void>
   setAliases: (id: number, aliases: string[]) => Promise<void>
   setSeries: (ids: number[], series: string) => Promise<void>
   setAffiliation: (ids: number[], name: string | null) => Promise<void>
@@ -225,6 +243,17 @@ export interface Api {
   placeCharacters: (ids: number[], affiliationId: number | null) => Promise<void>
   setWiki: (series: string, wiki: string | null) => Promise<void>
   applyAffiliations: (series: string, items: { characterId: number; path: string[] }[]) => Promise<number>
+  // 조직도 불러오기: preview from a wiki page / a picture (LLM), then apply
+  orgImportLink: (series: string, url: string) => Promise<OrgImportPreview>
+  orgImportImage: (series: string, data: Uint8Array, name: string, translate: boolean) => Promise<OrgImportPreview>
+  orgImportApply: (series: string, source: string, tree: OrgImportNode[], translate: boolean) => Promise<OrgImportPreview>
+  // 한글 이름: the game's data site (null = none), proposals, apply (one undo step)
+  gameDataSite: (series: string) => Promise<string | null>
+  namesFromGameData: (series: string) => Promise<NamePlan>
+  namesFromRoster: (series: string, data: Uint8Array, name: string) => Promise<NamePlan>
+  namesForTitles: () => Promise<NamePlan> // game titles → Korean (LLM)
+  namesForSmallGames: (maxChars: number) => Promise<NamePlan> // games with ≤ maxChars characters: title + characters (LLM)
+  applyNames: (changes: NameChange[], source: string) => Promise<number>
   // Ask the game's wiki by character name (default: characters without one).
   wikiLookup: (series: string, ids?: number[]) => Promise<WikiLookupResult>
   openUrl: (url: string) => Promise<void>

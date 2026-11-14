@@ -4,6 +4,7 @@
 import type { Db } from './db'
 import type { ActionLog } from './actionLog'
 import type { ManagedCharacter } from '../shared/types'
+import { ensureSeriesByName, nameTaken, renameShown, seriesIdByName, shown } from './names'
 
 // ---- snapshot / undo ----
 
@@ -78,46 +79,61 @@ function edit(db: Db, log: ActionLog, charIds: number[], label: string, fn: () =
   log.record<Snap>(MANAGE_ACTION, snap)
 }
 
-function seriesId(db: Db, name: string): number {
-  const n = name.trim() || '작품 미상'
-  db.prepare("INSERT OR IGNORE INTO series (name, aliases, created_at) VALUES (?, '[]', ?)").run(n, Date.now())
-  return (db.prepare('SELECT id FROM series WHERE name = ?').get(n) as { id: number }).id
-}
+const seriesId = ensureSeriesByName
 
 // ---- read ----
 
 export function listCharacters(db: Db): ManagedCharacter[] {
   const rows = db
     .prepare(
-      `SELECT c.id, c.name, c.aliases, c.danbooru_tag AS tag, c.parent_id AS parentId, s.id AS seriesId, s.name AS series,
-         a.name AS affiliation,
+      `SELECT c.id, ${shown('c')} AS name, c.name AS systemName, c.aliases, c.danbooru_tag AS tag, c.parent_id AS parentId, s.id AS seriesId,
+         ${shown('s')} AS series, s.name AS seriesSystemName, ${shown('a')} AS affiliation,
          (SELECT COUNT(DISTINCT ic.image_id) FROM image_characters ic WHERE ic.character_id = c.id AND ic.status IN ('auto','confirmed')) AS images,
          (SELECT COUNT(*) FROM refs r WHERE r.character_id = c.id) AS refs
        FROM characters c JOIN series s ON s.id = c.series_id LEFT JOIN affiliations a ON a.id = c.affiliation_id
-       ORDER BY s.name COLLATE NOCASE, c.name COLLATE NOCASE`
+       ORDER BY ${shown('s')} COLLATE NOCASE, ${shown('c')} COLLATE NOCASE`
     )
     .all() as (Omit<ManagedCharacter, 'aliases'> & { aliases: string })[]
   return rows.map((r) => ({ ...r, aliases: JSON.parse(r.aliases) as string[] }))
 }
 
 export function affiliationNames(db: Db, series: string): string[] {
+  const sid = seriesIdByName(db, series)
+  if (sid === undefined) return []
   return (
-    db
-      .prepare('SELECT a.name FROM affiliations a JOIN series s ON s.id = a.series_id WHERE s.name = ? ORDER BY a.name COLLATE NOCASE')
-      .all(series) as { name: string }[]
+    db.prepare(`SELECT ${shown('a')} AS name FROM affiliations a WHERE a.series_id = ? ORDER BY name COLLATE NOCASE`).all(sid) as { name: string }[]
   ).map((r) => r.name)
 }
 
 // ---- edits ----
 
+// The name on screen: the shown name once translated, else the system name too.
 export function renameCharacter(db: Db, log: ActionLog, id: number, name: string): void {
   const n = name.trim()
   if (!n) throw new Error('이름이 비어 있습니다')
-  const cur = db.prepare('SELECT series_id, name FROM characters WHERE id = ?').get(id) as { series_id: number; name: string }
-  if (db.prepare('SELECT 1 FROM characters WHERE series_id = ? AND name = ? AND id <> ?').get(cur.series_id, n, id)) {
-    throw new Error(`같은 게임에 "${n}"이(가) 이미 있습니다 — 합치기를 쓰세요`)
+  const cur = db.prepare('SELECT series_id FROM characters WHERE id = ?').get(id) as { series_id: number }
+  if (nameTaken(db, 'characters', n, id, cur.series_id)) throw new Error(`같은 게임에 "${n}"이(가) 이미 있습니다 — 합치기를 쓰세요`)
+  edit(db, log, [id], '이름 변경', () => renameShown(db, 'characters', id, n))
+}
+
+// 시스템 이름 (tag matching, wiki / LLM lookups); the old one stays an alias.
+export function setSystemName(db: Db, log: ActionLog, id: number, name: string): void {
+  const n = name.trim()
+  if (!n) throw new Error('이름이 비어 있습니다')
+  const cur = db.prepare('SELECT series_id, name, display_name, aliases FROM characters WHERE id = ?').get(id) as {
+    series_id: number
+    name: string
+    display_name: string | null
+    aliases: string
   }
-  edit(db, log, [id], '이름 변경', () => db.prepare('UPDATE characters SET name = ? WHERE id = ?').run(n, id))
+  if (n === cur.name) return
+  if (nameTaken(db, 'characters', n, id, cur.series_id) && n !== cur.display_name) throw new Error(`같은 게임에 "${n}"이(가) 이미 있습니다`)
+  const aliases = [...new Set([...(JSON.parse(cur.aliases) as string[]), cur.name])].filter((a) => a !== n)
+  edit(db, log, [id], '내부명 변경', () =>
+    db
+      .prepare('UPDATE characters SET name = ?, aliases = ?, display_name = ? WHERE id = ?')
+      .run(n, JSON.stringify(aliases), cur.display_name === n ? null : cur.display_name, id)
+  )
 }
 
 export function setAliases(db: Db, log: ActionLog, id: number, aliases: string[]): void {
@@ -131,7 +147,7 @@ export function setSeries(db: Db, log: ActionLog, ids: number[], series: string)
   edit(db, log, ids, '게임 변경', () => {
     for (const id of ids) {
       const c = db.prepare('SELECT name FROM characters WHERE id = ?').get(id) as { name: string }
-      if (db.prepare('SELECT 1 FROM characters WHERE series_id = ? AND name = ? AND id <> ?').get(sid, c.name, id)) {
+      if (nameTaken(db, 'characters', c.name, id, sid)) {
         throw new Error(`"${series}"에 "${c.name}"이(가) 이미 있습니다 — 합치기를 쓰세요`)
       }
       db.prepare('UPDATE characters SET series_id = ?, affiliation_id = NULL WHERE id = ? OR parent_id = ?').run(sid, id, id)
@@ -145,9 +161,11 @@ export function setAffiliation(db: Db, log: ActionLog, ids: number[], name: stri
     for (const id of ids) {
       const { series_id } = db.prepare('SELECT series_id FROM characters WHERE id = ?').get(id) as { series_id: number }
       let aid: number | null = null
-      if (name && name.trim()) {
-        db.prepare("INSERT OR IGNORE INTO affiliations (series_id, name, aliases) VALUES (?, ?, '[]')").run(series_id, name.trim())
-        aid = (db.prepare('SELECT id FROM affiliations WHERE series_id = ? AND name = ?').get(series_id, name.trim()) as { id: number }).id
+      const n = name?.trim()
+      if (n) {
+        const q = db.prepare('SELECT id FROM affiliations WHERE series_id = ? AND (name = ? OR display_name = ?) ORDER BY name = ? DESC LIMIT 1')
+        aid = (q.get(series_id, n, n, n) as { id: number } | undefined)?.id ?? null
+        if (aid === null) aid = Number(db.prepare("INSERT INTO affiliations (series_id, name, aliases) VALUES (?, ?, '[]')").run(series_id, n).lastInsertRowid)
       }
       db.prepare('UPDATE characters SET affiliation_id = ? WHERE id = ? OR parent_id = ?').run(aid, id, id)
     }
@@ -163,12 +181,13 @@ export function mergeCharacters(db: Db, log: ActionLog, from: number[], into: nu
     const target = db.prepare('SELECT aliases FROM characters WHERE id = ?').get(into) as { aliases: string }
     const aliases = new Set<string>(JSON.parse(target.aliases))
     for (const f of src) {
-      const c = db.prepare('SELECT name, aliases, danbooru_tag FROM characters WHERE id = ?').get(f) as {
+      const c = db.prepare('SELECT name, display_name, aliases, danbooru_tag FROM characters WHERE id = ?').get(f) as {
         name: string
+        display_name: string | null
         aliases: string
         danbooru_tag: string | null
       }
-      for (const a of [c.name, ...(JSON.parse(c.aliases) as string[]), ...(c.danbooru_tag ? [c.danbooru_tag] : [])]) aliases.add(a)
+      for (const a of [c.name, c.display_name ?? '', ...(JSON.parse(c.aliases) as string[]), ...(c.danbooru_tag ? [c.danbooru_tag] : [])]) if (a) aliases.add(a)
       // Images: point at the target; one row per image and character.
       for (const r of db.prepare('SELECT id, image_id FROM image_characters WHERE character_id = ?').all(f) as { id: number; image_id: number }[]) {
         if (db.prepare('SELECT 1 FROM image_characters WHERE image_id = ? AND character_id = ?').get(r.image_id, into)) {

@@ -1,8 +1,9 @@
 // Ordered schema migrations (CLAUDE.md §4). Never edit a shipped entry — append
 // a new one. `schema_version` holds the number of applied migrations.
 import type Database from 'better-sqlite3'
+import { splitTranslatedNames } from '../names'
 
-export const MIGRATIONS: string[] = [
+export const MIGRATIONS: (string | ((db: Database.Database) => void))[] = [
   // v1 — initial schema
   `
   CREATE TABLE series (
@@ -185,7 +186,21 @@ export const MIGRATIONS: string[] = [
   // v10 — a 단체 사진 can name its game (→ <정리 폴더>/게임/단체).
   `
   ALTER TABLE images ADD COLUMN group_series_id INTEGER REFERENCES series(id) ON DELETE SET NULL;
+  `,
+  // v11 — 캐릭터 아닌 그림 split: 오리지널 (an original character, no name to
+  // sort by → <정리 폴더>/오리지널) is kind 'other' with original = 1; the rest
+  // stays 기타 (scenery, no people).
   `
+  ALTER TABLE images ADD COLUMN original INTEGER NOT NULL DEFAULT 0;
+  `,
+  // v12 — 표시 이름: the name shown (Korean) beside the system name (names.ts)
+  `
+  ALTER TABLE series ADD COLUMN display_name TEXT;
+  ALTER TABLE characters ADD COLUMN display_name TEXT;
+  ALTER TABLE affiliations ADD COLUMN display_name TEXT;
+  `,
+  // v13 — names already translated in place get their system name back
+  (db) => splitTranslatedNames(db)
 ]
 
 export function schemaVersion(db: Database.Database): number {
@@ -198,7 +213,8 @@ export function migrate(db: Database.Database): number {
   for (; v < MIGRATIONS.length; v++) {
     const sql = MIGRATIONS[v]
     db.transaction(() => {
-      db.exec(sql)
+      if (typeof sql === 'string') db.exec(sql)
+      else sql(db)
       db.pragma(`user_version = ${v + 1}`)
     })()
   }

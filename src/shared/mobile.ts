@@ -19,7 +19,7 @@ export interface CharRef {
 // A picture's classification as the phone left it; fields left out are unchanged.
 export interface MobileImageState {
   chars?: { c: CharRef | null; st: string; src: string; conf: number | null; cand: { c: CharRef; score: number }[] | null }[]
-  kind?: string // character | other | unknown
+  kind?: string // character | other | original | unknown
   go?: number // 단체 사진으로만 분류
   gs?: string | null // its game (name)
   rating?: { v: string; src: string; rr: number }

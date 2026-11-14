@@ -12,6 +12,10 @@ import type {
   DupGroup,
   RatingPick,
   OrgChart,
+  OrgImportNode,
+  OrgImportPreview,
+  NameChange,
+  NamePlan,
   WikiLookupResult,
   GameOption,
   LearnedCharacter,
@@ -29,6 +33,7 @@ import type {
 } from '../shared/types'
 import { openDb, schemaVersion } from './db'
 import type { Db } from './db'
+import { seriesIdByName, shown } from './names'
 import { loadSettings, saveSettings } from './settings'
 import { CancelledError, JobQueue } from './queue'
 import { ActionLog } from './actionLog'
@@ -37,7 +42,7 @@ import { CAMIE_SPEC, CCIP_SPEC, MODEL_SPECS, PIXAI_SPEC, TAGGER_SPEC, deleteMode
 import type { AssistTagger } from './ml/assist'
 import { importImages } from './pipeline/importer'
 import type { ImportResult } from './pipeline/importer'
-import { assistPending, classifyPending, redecideAll } from './pipeline/classify'
+import { assistPending, classifyPending, redecideAll, trimStoredCamie } from './pipeline/classify'
 import type { ClassifyResult, DecideOptions } from './pipeline/classify'
 import { fillFileStats, libraryTree, listImages } from './library'
 import * as collect from './collect'
@@ -54,8 +59,12 @@ import * as manage from './manage'
 import { unknownClusters } from './cluster'
 import * as org from './org'
 import * as wiki from './pipeline/wiki'
+import * as orgImport from './orgImport'
+import * as koNames from './koNames'
 import type { JsonGet } from './pipeline/wiki'
 import * as booru from './pipeline/booru'
+import { learnFolder } from './pipeline/folderLearn'
+import type { FolderLearnResult } from './pipeline/folderLearn'
 import { stopTunnel } from './pipeline/booruNet'
 import { embedImages, imagesToEmbed, matchImages, refreshUserRefs } from './pipeline/knn'
 import { sourceImageIds, trashFor, trashImages } from './trash'
@@ -134,6 +143,7 @@ export class SortaCore {
     organize.registerOrganizeUndo(this.log, this.db)
     manage.registerManageUndo(this.log, this.db)
     org.registerOrgUndo(this.log, this.db)
+    koNames.registerNamesUndo(this.log, this.db)
     collect.registerCollectUndo(this.log, this.db)
     dupes.registerDupUndo(this.log, this.db)
     pack.registerPackUndo(this.log, this.db)
@@ -261,7 +271,7 @@ export class SortaCore {
       const s = this.settings()
       return importImages(
         this.db,
-        { sourceDirs: s.sourceDirs, exclude: [s.organizeDir], thumbsDir: this.paths.thumbsDir, dupDistance: s.thresholds.dupDistance },
+        { sourceDirs: s.sourceDirs, exclude: [s.organizeDir], thumbsDir: this.paths.thumbsDir, dupDistance: s.thresholds.dupDistance, organizeDir: s.organizeDir },
         ctx
       )
     })
@@ -310,8 +320,8 @@ export class SortaCore {
     review.markGroup(this.db, this.log, imageIds, series)
   }
 
-  markOther(imageIds: number[]): void {
-    review.markOther(this.db, this.log, imageIds)
+  markOther(imageIds: number[], original = false): void {
+    review.markOther(this.db, this.log, imageIds, original)
   }
 
   setRating(imageIds: number[], rating: Exclude<Rating, 'unknown'>): void {
@@ -339,7 +349,7 @@ export class SortaCore {
   async characterFromTag(tag: string): Promise<CharacterHit> {
     const id = ensureCharacter(this.db, tag, await this.getSeriesMap())
     const r = this.db
-      .prepare('SELECT c.name, s.name AS series FROM characters c JOIN series s ON s.id = c.series_id WHERE c.id = ?')
+      .prepare(`SELECT ${shown('c')} AS name, ${shown('s')} AS series FROM characters c JOIN series s ON s.id = c.series_id WHERE c.id = ?`)
       .get(id) as { name: string; series: string }
     return { id, name: r.name, series: r.series, n: 0 }
   }
@@ -431,8 +441,9 @@ export class SortaCore {
     return this.queue.add('학습할 캐릭터 확인', async (ctx) => {
       const s = this.settings()
       if (!s.allowWebLookup) throw new Error('설정에서 "외부 조회 허용"을 켜야 학습할 수 있습니다')
+      ctx.step?.('태거가 아는 캐릭터 목록 읽는 중')
       const known = await booru.knownVocab(this.paths.modelsDir, s.assistMode !== 'none', s.assistMode === 'pixai+camie')
-      const src = await this.booruSource()
+      const src = await this.booruSource((host) => ctx.step?.(`출처 확인 · ${host} 접속 확인 중`))
       const plan = await booru.planGame(src, this.db, seriesTag, known, s.ignoredCharacterTags, await this.getSeriesMap(), s.learnMinPosts, ctx)
       return { ...plan, source: new URL(src.base).hostname }
     })
@@ -442,9 +453,21 @@ export class SortaCore {
     return this.queue.add('캐릭터 학습', async (ctx) => {
       const s = this.settings()
       if (!s.allowWebLookup) throw new Error('설정에서 "외부 조회 허용"을 켜야 학습할 수 있습니다')
+      ctx.step?.('학습 모델 불러오는 중')
       const m = await this.getLearnModels()
       if (!m) return null
-      return booru.learnTags(await this.booruSource(), this.db, tags, m, await this.getSeriesMap(), s.learnPerCharacter, s.learnMinPosts, ctx)
+      const src = await this.booruSource((host) => ctx.step?.(`출처 확인 · ${host} 접속 확인 중`))
+      return booru.learnTags(src, this.db, tags, m, await this.getSeriesMap(), s.learnPerCharacter, s.learnMinPosts, ctx)
+    })
+  }
+
+  // 직접 학습 (no outside lookup: the pictures are the user's own).
+  runLearnFolder(dir: string, characterId: number): { id: number; done: Promise<FolderLearnResult | null> } {
+    return this.queue.add('직접 학습', async (ctx) => {
+      ctx.step?.('학습 모델 불러오는 중')
+      const m = await this.getLearnModels()
+      if (!m) return null
+      return learnFolder(this.db, characterId, dir, m, ctx)
     })
   }
 
@@ -453,19 +476,23 @@ export class SortaCore {
     return booru.searchTags(await this.booruSource(), q)
   }
 
-  // Danbooru (through the bypass tunnel) when chosen and reachable; otherwise
-  // Safebooru. Checked once per session.
+  // The chosen source when reachable, else the next of Danbooru → Gelbooru
+  // (with an API key) → Safebooru. Checked once per session.
   private sourceCheck: Promise<booru.BooruSource> | null = null
   private sourceKey = ''
-  private booruSource(): Promise<booru.BooruSource> {
+  private booruSource(onTry?: (host: string) => void): Promise<booru.BooruSource> {
     const s = this.settings()
-    const key = `${s.booruSource}:${s.learnSensitive}`
+    const key = `${s.booruSource}:${s.learnSensitive}:${s.gelbooruUserId}:${s.gelbooruApiKey}`
     if (!this.sourceCheck || this.sourceKey !== key) {
       this.sourceKey = key
       this.sourceCheck = (async () => {
-        if (s.booruSource === 'danbooru') {
-          const d = booru.DANBOORU(s.learnSensitive)
-          if (await booru.reachable(d)) return d
+        const tries: booru.BooruSource[] = []
+        if (s.booruSource === 'danbooru') tries.push(booru.DANBOORU(s.learnSensitive))
+        if (s.booruSource !== 'safebooru' && s.gelbooruUserId.trim() && s.gelbooruApiKey.trim())
+          tries.push(booru.GELBOORU(s.learnSensitive, s.gelbooruUserId.trim(), s.gelbooruApiKey.trim()))
+        for (const src of tries) {
+          onTry?.(new URL(src.base).hostname)
+          if (await booru.reachable(src)) return src
         }
         return booru.SAFEBOORU
       })()
@@ -476,10 +503,10 @@ export class SortaCore {
   learned(): LearnedCharacter[] {
     return this.db
       .prepare(
-        `SELECT l.character_id AS characterId, c.name, s.name AS series, l.tag, l.refs, l.learned_at AS learnedAt,
+        `SELECT l.character_id AS characterId, ${shown('c')} AS name, ${shown('s')} AS series, l.tag, l.refs, l.learned_at AS learnedAt,
            (SELECT COUNT(*) FROM refs r WHERE r.character_id = l.character_id AND r.source = 'user') AS userRefs
          FROM learned l JOIN characters c ON c.id = l.character_id JOIN series s ON s.id = c.series_id
-         ORDER BY s.name COLLATE NOCASE, c.name COLLATE NOCASE`
+         ORDER BY series COLLATE NOCASE, name COLLATE NOCASE`
       )
       .all() as LearnedCharacter[]
   }
@@ -492,7 +519,7 @@ export class SortaCore {
   // Games to offer for "게임 학습": known series with their danbooru tag.
   async games(): Promise<GameOption[]> {
     const out = new Map<string, string>()
-    for (const r of this.db.prepare('SELECT name, danbooru_copyright_tag AS t FROM series WHERE danbooru_copyright_tag IS NOT NULL').all() as {
+    for (const r of this.db.prepare('SELECT COALESCE(display_name, name) AS name, danbooru_copyright_tag AS t FROM series WHERE danbooru_copyright_tag IS NOT NULL').all() as {
       name: string
       t: string
     }[])
@@ -534,6 +561,9 @@ export class SortaCore {
   }
   renameCharacter(id: number, name: string): void {
     manage.renameCharacter(this.db, this.log, id, name)
+  }
+  setSystemName(id: number, name: string): void {
+    manage.setSystemName(this.db, this.log, id, name)
   }
   setAliases(id: number, aliases: string[]): void {
     manage.setAliases(this.db, this.log, id, aliases)
@@ -585,14 +615,82 @@ export class SortaCore {
       const chart = org.orgChart(this.db, series)
       let w = chart.wiki
       if (!w) {
-        w = await wiki.findWiki(series, get, ctx.signal)
+        // by the system name (the English wiki's spelling)
+        w = await wiki.findWiki(chart.seriesSystemName, get, ctx.signal)
         if (!w) throw new Error(`"${series}" 위키를 찾지 못했습니다. 조직도에서 위키 주소를 직접 넣어 주세요`)
-        this.db.prepare('UPDATE series SET wiki = ? WHERE name = ?').run(w, series)
+        this.db.prepare('UPDATE series SET wiki = ? WHERE id = ?').run(w, org.seriesIdOf(this.db, series))
       }
       const chars = chart.characters.filter((c) => (ids ? ids.includes(c.id) : c.affiliationId === null))
-      const suggestions = await wiki.lookupAll(w, chars, ctx, get, this.opts.wikiGapMs)
+      const shownName = new Map(chars.map((c) => [c.id, c.name]))
+      const found = await wiki.lookupAll(w, chars.map((c) => ({ id: c.id, name: c.systemName })), ctx, get, this.opts.wikiGapMs)
+      const suggestions = found.map((s) => ({ ...s, name: shownName.get(s.characterId) ?? s.name }))
       return { wiki: w, suggestions }
     })
+  }
+
+  // 조직도 불러오기 — read a tree (wiki page / picture), preview what it
+  // would change; orgImportApply applies it (one undo step).
+  orgImportLink(series: string, url: string): { id: number; done: Promise<OrgImportPreview> } {
+    return this.queue.add('조직도 불러오기', async (ctx) => {
+      ctx.step?.('위키 문서 읽는 중')
+      const page = await orgImport.fetchWikiPage(url, this.opts.wikiGet ?? wiki.fetchJson, ctx.signal)
+      const tree = orgImport.parseOrgWikitext(page.text)
+      if (!tree.length) throw new Error(`"${page.title}" 문서에서 소속 목록을 찾지 못했습니다 (제목 아래 목록 형태의 문서만 읽습니다)`)
+      return org.importTree(this.db, this.log, series, page.title, tree, false)
+    })
+  }
+  orgImportImage(series: string, data: Buffer, name: string, translate: boolean): { id: number; done: Promise<OrgImportPreview> } {
+    return this.queue.add('조직도 불러오기', async (ctx) => {
+      ctx.step?.('LLM이 그림을 읽는 중')
+      const chart = org.orgChart(this.db, series)
+      const known = {
+        affiliations: chart.nodes.flatMap((n) => [n.name, n.systemName, ...n.aliases]),
+        characters: chart.characters.flatMap((c) => (c.name === c.systemName ? [c.name] : [c.name, c.systemName]))
+      }
+      const tree = await orgImport.treeFromImage(this.settings(), series, data, known, translate, ctx.signal)
+      if (!tree.length) throw new Error('그림에서 소속을 찾지 못했습니다')
+      return org.importTree(this.db, this.log, series, name, tree, false, translate)
+    })
+  }
+  orgImportApply(series: string, source: string, tree: OrgImportNode[], translate = false): OrgImportPreview {
+    return org.importTree(this.db, this.log, series, source, tree, true, translate)
+  }
+
+  // 한글 이름: proposals from the game's data site / a roster picture / the
+  // LLM by name; applyNames sets the shown names.
+  gameDataSite(series: string): string | null {
+    return koNames.gameDataSite(series) ?? koNames.gameDataSite(this.systemSeriesName(series))
+  }
+  private systemSeriesName(series: string): string {
+    const id = seriesIdByName(this.db, series)
+    return id === undefined ? series : (this.db.prepare('SELECT name FROM series WHERE id = ?').get(id) as { name: string }).name
+  }
+  namesFromGameData(series: string): { id: number; done: Promise<NamePlan> } {
+    return this.queue.add('한글 이름 찾기', async (ctx) => {
+      ctx.step?.(`${this.gameDataSite(series) ?? '게임 데이터'} 읽는 중`)
+      return koNames.planFromGameData(this.db, series, this.opts.wikiGet ?? wiki.fetchJson, ctx.signal)
+    })
+  }
+  namesFromRoster(series: string, data: Buffer, name: string): { id: number; done: Promise<NamePlan> } {
+    return this.queue.add('한글 이름 찾기', async (ctx) => {
+      ctx.step?.('LLM이 명부를 읽는 중')
+      return koNames.planFromRoster(this.db, this.settings(), series, data, name, ctx.signal)
+    })
+  }
+  namesForTitles(): { id: number; done: Promise<NamePlan> } {
+    return this.queue.add('게임 이름 번역', async (ctx) => {
+      ctx.step?.('LLM이 번역하는 중')
+      return koNames.planSeriesTitles(this.db, this.settings(), ctx.signal)
+    })
+  }
+  namesForSmallGames(maxChars: number): { id: number; done: Promise<NamePlan> } {
+    return this.queue.add('캐릭터 적은 게임 번역', async (ctx) => {
+      ctx.step?.('LLM이 번역하는 중')
+      return koNames.planSmallGames(this.db, this.settings(), maxChars, ctx.signal)
+    })
+  }
+  applyNames(changes: NameChange[], source: string): number {
+    return koNames.applyNames(this.db, this.log, changes, `한글 이름 (${source})`)
   }
 
   unknownClusters(): ClusterResult {
@@ -609,16 +707,16 @@ export class SortaCore {
   // ---- 공유 파일 (.sortapack) ----
 
   async exportPack(file: string, appVersion: string, o: PackExportOptions): Promise<number> {
-    const buf = pack.exportPack(this.db, appVersion, o)
+    const buf = await pack.exportPack(this.db, appVersion, o)
     await fsp.writeFile(file, buf)
     return buf.length
   }
   // What importing `file` would do (nothing is changed).
   async previewPack(file: string, o: { overwrite: boolean; learned: boolean }): Promise<PackPreview> {
-    return pack.planImport(this.db, pack.readPack(await fsp.readFile(file)), o).preview
+    return pack.planImport(this.db, await pack.readPack(await fsp.readFile(file)), o).preview
   }
   async importPack(file: string, o: { overwrite: boolean; learned: boolean }): Promise<PackPreview> {
-    return pack.importPack(this.db, this.log, pack.readPack(await fsp.readFile(file)), o)
+    return pack.importPack(this.db, this.log, await pack.readPack(await fsp.readFile(file)), o)
   }
 
   // ---- 분류 정보 파일 (<정리 폴더>/.sorta/library.sortapack, libfile.ts) ----
@@ -629,7 +727,7 @@ export class SortaCore {
     return this.queue.add(label, async (ctx) => {
       const root = this.settings().organizeDir
       if (!root) throw new Error('설정에서 정리 폴더를 먼저 정하세요 (그림은 정리 폴더 기준으로 찾습니다)')
-      const p = pack.readPack(await fsp.readFile(file))
+      const p = await pack.readPack(await fsp.readFile(file))
       const r = await libfile.restoreFiles(this.db, this.log, p, root, this.paths.thumbsDir, { ...o, label }, ctx)
       if (file === libfile.libFilePath(root)) this.stampLibFile(root, p.createdAt)
       return r
@@ -644,7 +742,7 @@ export class SortaCore {
     const file = libfile.libFilePath(root)
     if (!existsSync(file)) return null
     try {
-      const p = pack.readPack(await fsp.readFile(file))
+      const p = await pack.readPack(await fsp.readFile(file))
       if (!p.files?.length) return null
       return p.createdAt > (this.settings().libraryFileStamps[root] ?? 0) ? file : null
     } catch {
@@ -790,6 +888,16 @@ export class SortaCore {
   // File size / modified time of images that lack them (sorting by 크기 / 날짜).
   runFileStats(): { id: number; done: Promise<number> } {
     return this.queue.add('파일 정보 확인', () => fillFileStats(this.db))
+  }
+
+  // Camie's stored noise scores (see trimCamie) dropped once per data folder.
+  runTrimCamie(): { id: number; done: Promise<number> } | null {
+    if (this.db.prepare("SELECT 1 FROM settings WHERE key = 'camieTrimmed'").get()) return null
+    return this.queue.add('태그 점수 정리', async (ctx) => {
+      const n = await trimStoredCamie(this.db, ctx)
+      if (!ctx.signal.aborted) this.db.prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('camieTrimmed', 'true')").run()
+      return n
+    })
   }
 
   // ---- 즐겨찾기 · 평점 · 그룹 (each change is one undo step) ----

@@ -3,7 +3,7 @@
 // Owns the core, the sorta-img:// protocol, the IPC handlers, the watch-folder
 // watchers and the background jobs. The data folder is shared between the two
 // apps, so it is locked while one of them uses it.
-import { BrowserWindow, clipboard, dialog, ipcMain, nativeImage, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, net, protocol, session, shell } from 'electron'
 import type { CustomScheme, OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { existsSync, mkdirSync, promises as fsp, readFileSync, unlinkSync, watch, writeFileSync, type FSWatcher } from 'fs'
 import { join } from 'path'
@@ -11,10 +11,11 @@ import { pathToFileURL } from 'url'
 import { SortaCore, CancelledError } from '../core'
 import { NewerDataError } from '../core/db'
 import { isInside } from '../core/pipeline/scan'
+import { ChallengeError, setBrowserGet, type NetResponse } from '../core/pipeline/booruNet'
 import { IPC } from '../shared/ipc'
 import { connectSmb } from '../core/smb'
 import type { JobSummary, SortaStatus } from '../shared/ipc'
-import type { LibraryFilter, ModelId, PackExportOptions, Rating, RatingPick, ReviewKind, Settings } from '../shared/types'
+import type { LibraryFilter, ModelId, NameChange, OrgImportNode, PackExportOptions, Rating, RatingPick, ReviewKind, Settings } from '../shared/types'
 
 export interface SortaHostOptions {
   dataDir: string
@@ -235,6 +236,139 @@ async function imageSearch(path: string): Promise<void> {
   })
 }
 
+// Cloudflare check for character learning: donmai (Danbooru / Safebooru) can
+// answer API requests with its "Just a moment…" page, which Node can't get
+// past. The check is then shown in a window for the user to clear by hand —
+// never solved behind their back (same as Halftone's 일반 만화). The
+// clearance cookie stays in that window's session, and the requests run as
+// fetch() inside the window's page (same origin, so the cookie — Partitioned
+// by Cloudflare — goes along), until Cloudflare asks again.
+const CF_PARTITION = 'persist:sorta-booru'
+// Turnstile cross-checks the UA against the client hints, in its own
+// cross-origin frame too, which only the app-wide fallback reaches (Halftone
+// sets the same). Plain Chrome of the version this Electron ships.
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
+const CF_WAIT_MS = 3 * 60_000
+let cfWin: BrowserWindow | null = null
+let cfShown = false // shown by us for a check (hidden again once it's cleared)
+let cfDismissed = false // closed during a check: don't pop up again until the next 학습
+// Set from the main document's `cf-mitigated` header, never by running script
+// in the page: Halftone found that polling a challenge page made Cloudflare
+// reject the clearance it had just issued.
+let cfOnChallenge = false
+let cfChain: Promise<unknown> = Promise.resolve()
+
+function cfWindow(): BrowserWindow {
+  if (cfWin && !cfWin.isDestroyed()) return cfWin
+  app.userAgentFallback = CHROME_UA
+  const ses = session.fromPartition(CF_PARTITION)
+  ses.setUserAgent(CHROME_UA)
+  const w = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 720,
+    title: 'Sorta — 사이트 확인',
+    autoHideMenuBar: true,
+    ...(opts.icon && existsSync(opts.icon) ? { icon: opts.icon } : {}),
+    webPreferences: { partition: CF_PARTITION, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
+  })
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  ses.webRequest.onHeadersReceived((d, cb) => {
+    if (d.resourceType === 'mainFrame' && d.webContentsId === w.webContents.id)
+      cfOnChallenge = Object.keys(d.responseHeaders ?? {}).some((k) => k.toLowerCase() === 'cf-mitigated')
+    cb({ responseHeaders: d.responseHeaders })
+  })
+  // Closing only hides it (the session's page is where requests run); it goes
+  // with the app window (a hidden window left over would keep the app open).
+  w.on('close', (e) => {
+    e.preventDefault()
+    w.hide()
+    if (cfShown) cfDismissed = true
+  })
+  w.on('closed', () => (cfWin = null))
+  const drop = (): void => {
+    if (!w.isDestroyed()) w.destroy()
+  }
+  opts.window()?.once('closed', drop)
+  app.once('before-quit', drop)
+  return (cfWin = w)
+}
+
+// Cloudflare cookie for the host already (it may pass the check by itself).
+async function cfHasClearance(host: string): Promise<boolean> {
+  // Partitioned cookies don't come back from get({ url }) — match by hand.
+  const cookies = await session.fromPartition(CF_PARTITION).cookies.get({}).catch(() => [])
+  return cookies.some((c) => {
+    const d = (c.domain ?? '').replace(/^\./, '')
+    return c.name === 'cf_clearance' && !!d && (host === d || host.endsWith('.' + d))
+  })
+}
+
+const cfFail = (): ChallengeError => new ChallengeError('사이트 확인(Cloudflare)을 마치지 않아 학습을 멈췄습니다. 다시 학습하면 확인 창이 열립니다.')
+
+// The window shows a page of `url`'s site past the check: load it, and on a
+// check wait — hidden for a few seconds if a cookie may let it through, else
+// shown for the user to clear.
+async function cfReady(url: string, signal?: AbortSignal): Promise<BrowserWindow> {
+  const w = cfWindow()
+  const cur = w.webContents.getURL()
+  if (cur && new URL(cur).origin === new URL(url).origin && !cfOnChallenge) return w
+  await w.loadURL(url).catch(() => {}) // a challenge page or a JSON body both finish loading
+  if (!cfOnChallenge) return w
+  if (cfDismissed) throw cfFail()
+  const since = Date.now()
+  const quiet = (await cfHasClearance(new URL(url).hostname)) ? 5000 : 0
+  try {
+    while (cfOnChallenge) {
+      if (signal?.aborted) throw new CancelledError()
+      if (w.isDestroyed() || cfDismissed || Date.now() - since > CF_WAIT_MS) throw cfFail()
+      if (!cfShown && Date.now() - since >= quiet) {
+        cfShown = true
+        w.show()
+        w.focus()
+        send(IPC.toast, { ok: false, message: '사이트 확인이 필요합니다. 열린 창에서 확인을 마치면 학습을 이어 갑니다.' })
+      }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+  } finally {
+    if (cfShown && !w.isDestroyed()) w.hide()
+    cfShown = false
+  }
+  return w
+}
+
+// GET `url` as fetch() in the window's page. One at a time (one window).
+function booruBrowserGet(url: string, signal?: AbortSignal): Promise<NetResponse> {
+  const run = async (): Promise<NetResponse> => {
+    for (let attempt = 0; ; attempt++) {
+      const w = await cfReady(url, signal)
+      const r = (await w.webContents.executeJavaScript(
+        `fetch(${JSON.stringify(url)}, { credentials: 'include' }).then(async (r) => {
+          const b = new Uint8Array(await r.arrayBuffer())
+          let s = ''
+          for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000))
+          return { status: r.status, cf: r.headers.has('cf-mitigated'), body: btoa(s) }
+        })`
+      )) as { status: number; cf: boolean; body: string }
+      // The clearance ran out between requests: the page asks again.
+      if (r.cf && attempt === 0) {
+        cfOnChallenge = true
+        continue
+      }
+      const buf = Buffer.from(r.body, 'base64')
+      return {
+        ok: r.status >= 200 && r.status < 300,
+        status: r.status,
+        json: async () => JSON.parse(buf.toString('utf8')),
+        bytes: async () => buf
+      }
+    }
+  }
+  const p = cfChain.then(run, run)
+  cfChain = p.catch(() => {})
+  return p
+}
+
 // Embed / rebuild references / compare with learned characters. Coalesced:
 // review clicks in a row trigger one refresh a moment later.
 let refreshTimer: NodeJS.Timeout | null = null
@@ -272,6 +406,7 @@ async function importJob(): Promise<JobSummary> {
     const parts = [`${r.added}장 추가`]
     if (r.moved) parts.push(`${r.moved}장 위치 갱신`)
     if (r.skipped) parts.push(`중복 ${r.skipped}장 제외`)
+    if (r.removed) parts.push(`완전히 같은 파일 ${r.removed}장 삭제됨 폴더로`)
     if (r.failed.length) parts.push(`${r.failed.length}장 실패`)
     return parts.join(', ')
   })
@@ -302,6 +437,8 @@ async function refreshJob(): Promise<JobSummary> {
 
 // 감시 폴더: new files in the source folders are imported (→ classify →
 // learned-character check → organized images follow). Bursts are coalesced.
+// Only files that appeared: a delete / move away (the file is gone) doesn't
+// import — deleted pictures leave the library at start-up or on 갱신.
 let watchers: FSWatcher[] = []
 let watchTimer: NodeJS.Timeout | null = null
 function restartWatch(): void {
@@ -313,7 +450,9 @@ function restartWatch(): void {
   for (const dir of s.sourceDirs) {
     try {
       const w = watch(dir, { recursive: true }, (_ev, name) => {
-        if (name && skip.some((r) => isInside(join(dir, name.toString()), r))) return
+        if (!name) return
+        const file = join(dir, name.toString())
+        if (skip.some((r) => isInside(file, r)) || !existsSync(file)) return
         if (watchTimer) clearTimeout(watchTimer)
         watchTimer = setTimeout(() => {
           watchTimer = null
@@ -470,7 +609,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.duplicates, () => core.duplicates())
   ipcMain.handle(IPC.trash, async (_e, ids: number[]) => {
     const r = await summarize(core.runTrash(ids, (p) => shell.trashItem(p)).done, (x) =>
-      `${x.trashed}장 삭제${x.failed.length ? ` · ${x.failed.length}장 실패` : ''} · 휴지통(NAS 그림은 정리 폴더의 삭제됨 폴더)에서 되살릴 수 있습니다`
+      `${x.trashed}장 삭제${x.failed.length ? ` · ${x.failed.length}장 실패 (${x.failed[0]})` : ''} · 휴지통(NAS 그림은 정리 폴더의 삭제됨 폴더)에서 되살릴 수 있습니다`
     )
     learnRefreshSoon() // confirmed pictures may be gone → references change
     return r
@@ -533,19 +672,39 @@ function registerIpc(): void {
   ipcMain.handle(IPC.placeCharacters, mutate((ids: number[], a: number | null) => core.placeCharacters(ids, a)))
   ipcMain.handle(IPC.setWiki, mutate((s: string, w: string | null) => core.setWiki(s, w)))
   ipcMain.handle(IPC.applyAffiliations, mutate((s: string, items: { characterId: number; path: string[] }[]) => core.applyAffiliations(s, items)))
+  ipcMain.handle(IPC.orgImportLink, (_e, s: string, url: string) => core.orgImportLink(s, url).done)
+  ipcMain.handle(IPC.orgImportImage, (_e, s: string, data: Uint8Array, name: string, tr: boolean) => core.orgImportImage(s, Buffer.from(data), name, tr).done)
+  ipcMain.handle(IPC.orgImportApply, (_e, s: string, src: string, tree: OrgImportNode[], tr: boolean) => {
+    const r = core.orgImportApply(s, src, tree, tr)
+    changed()
+    void reorganizeJob() // folder names follow the new places / names
+    return r
+  })
+  ipcMain.handle(IPC.gameDataSite, (_e, s: string) => core.gameDataSite(s))
+  ipcMain.handle(IPC.namesFromGameData, (_e, s: string) => core.namesFromGameData(s).done)
+  ipcMain.handle(IPC.namesFromRoster, (_e, s: string, data: Uint8Array, name: string) => core.namesFromRoster(s, Buffer.from(data), name).done)
+  ipcMain.handle(IPC.namesForTitles, () => core.namesForTitles().done)
+  ipcMain.handle(IPC.namesForSmallGames, (_e, max: number) => core.namesForSmallGames(max).done)
+  ipcMain.handle(IPC.applyNames, (_e, ch: NameChange[], src: string) => {
+    const n = core.applyNames(ch, src)
+    changed()
+    void reorganizeJob() // organized folders take the new names
+    return n
+  })
   ipcMain.handle(IPC.wikiLookup, (_e, s: string, ids?: number[]) => core.wikiLookup(s, ids).done)
   // Wiki pages open in the user's browser (https only).
   ipcMain.handle(IPC.openUrl, (_e, u: string) => {
     if (/^https:\/\//.test(u)) void shell.openExternal(u)
   })
   ipcMain.handle(IPC.renameCharacter, mutate((id: number, n: string) => core.renameCharacter(id, n)))
+  ipcMain.handle(IPC.setSystemName, mutate((id: number, n: string) => core.setSystemName(id, n)))
   ipcMain.handle(IPC.setAliases, mutate((id: number, a: string[]) => core.setAliases(id, a)))
   ipcMain.handle(IPC.setSeries, mutate((ids: number[], s: string) => core.setSeries(ids, s)))
   ipcMain.handle(IPC.setAffiliation, mutate((ids: number[], n: string | null) => core.setAffiliation(ids, n)))
   ipcMain.handle(IPC.mergeCharacters, mutateRefs((f: number[], i: number) => core.mergeCharacters(f, i)))
   ipcMain.handle(IPC.confirmCharacters, mutateRefs((i: number[], c: number[]) => core.confirmCharacters(i, c)))
   ipcMain.handle(IPC.addCharacter, mutateRefs((i: number, c: number) => core.addCharacter(i, c)))
-  ipcMain.handle(IPC.markOther, mutateRefs((i: number[]) => core.markOther(i)))
+  ipcMain.handle(IPC.markOther, mutateRefs((i: number[], o?: boolean) => core.markOther(i, !!o)))
   ipcMain.handle(IPC.markGroup, mutateRefs((i: number[], s: string | null) => core.markGroup(i, s)))
   ipcMain.handle(IPC.setRating, mutate((i: number[], r: Exclude<Rating, 'unknown'>) => core.setRating(i, r)))
   ipcMain.handle(IPC.createCharacter, (_e, n: string, s: string) => core.createCharacter(n, s))
@@ -565,12 +724,25 @@ function registerIpc(): void {
     return r
   })
   ipcMain.handle(IPC.learnRefresh, () => learnRefreshJob())
-  ipcMain.handle(IPC.learnPlan, (_e, t: string) => core.learnPlan(t).done)
+  ipcMain.handle(IPC.learnPlan, (_e, t: string) => {
+    cfDismissed = false // the user asked again: the check window may open again
+    return core.learnPlan(t).done
+  })
   ipcMain.handle(IPC.learn, async (_e, tags: string[]) => {
+    cfDismissed = false
     const r = await summarize(core.runLearn(tags).done, (x) =>
       x === null
         ? '캐릭터 학습 모델이 없습니다. 설정 → 모델에서 받으세요.'
         : `${x.characters}명 학습 (참고 그림 ${x.refs}장)${x.skipped.length ? ` · 그림 부족으로 ${x.skipped.length}명 제외` : ''}${x.failed.length ? ` · 접속 문제로 ${x.failed.length}명 실패 (다시 학습하면 이어서 받습니다)` : ''}`
+    )
+    if (r.ok) void learnRefreshJob()
+    return r
+  })
+  ipcMain.handle(IPC.learnFolder, async (_e, dir: string, id: number) => {
+    const r = await summarize(core.runLearnFolder(dir, id).done, (x) =>
+      x === null
+        ? '캐릭터 학습 모델이 없습니다. 설정 → 모델에서 받으세요.'
+        : `직접 학습: 새 참고 그림 ${x.added}장 (전체 ${x.total}장)${x.known ? ` · 이미 학습한 그림 ${x.known}장` : ''}${x.failed ? ` · 읽지 못한 그림 ${x.failed}장` : ''}`
     )
     if (r.ok) void learnRefreshJob()
     return r
@@ -636,23 +808,33 @@ function open(): SortaStatus {
   }
   opened = true
   registerIpc()
+  setBrowserGet(booruBrowserGet)
   return status
 }
 
 export const sortaCore = (): SortaCore | null => (status.ready ? core : null)
 
 // Background work once the Sorta screen is shown (idempotent): watch folders
-// and the start-up jobs.
+// and the start-up jobs. Deleted / moved files are picked up here (라이브러리
+// 갱신) and when the user presses 갱신 — not after every delete.
 let started = false
 export function startSorta(): void {
   if (!status.ready || started) return
   started = true
   restartWatch()
-  void libFileCheck().then(() => mobileCheck())
+  void libFileCheck()
+    .then(() => mobileCheck())
+    .then(async () => {
+      if (!core.settings().sourceDirs.length) return
+      const r = await refreshJob()
+      if (!r.ok) send(IPC.toast, { ...r, message: `라이브러리 갱신: ${r.message}` })
+    })
   libTimer = setInterval(libTick, 15_000)
   // Results were reset for a pipeline fix → re-classify in the background
   // (progress shows in the status bar; cancellable).
   void summarize(core.runFileStats().done, () => '') // images imported before sizes were kept
+  const trim = core.runTrimCamie()
+  if (trim) void summarize(trim.done, () => '')
   void core.models().then(async (m) => {
     const has = (id: ModelId): boolean => !!m.find((x) => x.id === id)?.installed
     // The small character → game table comes with the main tagger.

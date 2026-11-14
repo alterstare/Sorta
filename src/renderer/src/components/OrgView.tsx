@@ -1,6 +1,9 @@
-// 소속 조직도: one game's affiliations as an org chart. Drag a box onto
-// another to put it under it (top / bottom edge = before / after it), drag
-// characters between boxes, add / rename / delete boxes. The game's wiki can
+// 소속 조직도: one game's affiliations as an org chart. Drag a box to the
+// right edge of another to put it under it (upper / lower half = before /
+// after it, same level), drag characters between boxes, add / rename /
+// delete boxes. Boxes and characters can also be cut and pasted (right-click,
+// Ctrl+X / Ctrl+V on the box under the pointer), and a box moved under one
+// found by name (하위 소속으로 이동…). The game's wiki can
 // suggest affiliations (by character name); suggestions apply only when the
 // user accepts them. Every change is one Ctrl+Z step.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,11 +14,34 @@ import { useKept, useKeptScroll } from '../keep'
 import type { WikiRow } from '../store'
 import type { OrgChart, OrgCharacter, OrgNode, WikiSuggestion } from '../../../shared/types'
 import { Select } from './Combo'
-import { AddIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon, OpenInNewIcon, PersonIcon, SearchIcon } from './icons'
+import ContextMenu from './ContextMenu'
+import OrgImport from './OrgImport'
+import type { MenuItem } from './ContextMenu'
+import {
+  AddIcon,
+  CheckIcon,
+  CloseIcon,
+  ContentCutIcon,
+  ContentPasteIcon,
+  DeleteIcon,
+  EditIcon,
+  ImageIcon,
+  LinkIcon,
+  OpenInNewIcon,
+  PersonIcon,
+  SearchIcon,
+  SubdirectoryArrowRightIcon
+} from './icons'
+import { arrowText } from '../arrowText'
 
 type Drag = { kind: 'aff'; id: number } | { kind: 'chars'; ids: number[] }
 type Drop = 'before' | 'inside' | 'after'
+// Cut, waiting to be pasted under a box (characters: also into 소속 미지정).
+type Clip = { kind: 'aff'; id: number; name: string } | { kind: 'chars'; ids: number[]; names: string[] }
+// Where Ctrl+V goes: the box under the pointer (null = the game's root box).
+type PasteTarget = { kind: 'box'; id: number | null } | { kind: 'unplaced' }
 const MIME = 'application/x-sorta-org'
+const AFF_MIME = 'application/x-sorta-org-aff' // marks a box drag (types are readable during dragover, data isn't)
 const LAST_GAME = 'sorta.org.game'
 
 const readDrag = (e: DragEvent): Drag | null => {
@@ -57,6 +83,13 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
   const [editing, setEditing] = useState<{ mode: 'add' | 'rename'; id: number | null } | null>(null)
   // 소속 미지정 chip clicked → pick its 소속 right there (the selection goes along)
   const [assign, setAssign] = useState<{ ids: number[]; x: number; y: number } | null>(null)
+  const [clip, setClip] = useState<Clip | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  // 하위 소속으로 이동…: pick the new parent of a box by name
+  const [movePop, setMovePop] = useState<{ id: number; x: number; y: number } | null>(null)
+  const hovered = useRef<PasteTarget | null>(null)
+  // 조직도 불러오기 (wiki page / picture)
+  const [importing, setImporting] = useState<'link' | 'image' | null>(null)
   const orgLookup = useStore((s) => s.orgLookup)
   const startOrgLookup = useStore((s) => s.startOrgLookup)
   const setOrgRows = useStore((s) => s.setOrgRows)
@@ -93,6 +126,8 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
     setSel([])
     setEditing(null)
     setAssign(null)
+    setClip(null)
+    setMovePop(null)
   }, [game])
   // Search → jump: once the target's game is shown, scroll its box (or the
   // character's chip) into view and flash it.
@@ -147,6 +182,103 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
     return m
   }, [chart])
   const unplaced = members.get(null) ?? []
+  const nodeName = useMemo(() => new Map((chart?.nodes ?? []).map((n) => [n.id, n.name])), [chart])
+  // A box's name; null = the game (top level)
+  const nameOf = useCallback((id: number | null): string => (id === null ? (chart?.series ?? '') : (nodeName.get(id) ?? '')), [chart, nodeName])
+  // Ids of a box and everything under it (a box can't go under itself).
+  const subtree = useCallback(
+    (id: number): Set<number> => {
+      const out = new Set<number>([id])
+      const walk = (p: number): void => {
+        for (const k of kids.get(p) ?? []) {
+          out.add(k.id)
+          walk(k.id)
+        }
+      }
+      walk(id)
+      return out
+    },
+    [kids]
+  )
+
+  // ---- cut & paste ----
+  const cutAff = (n: OrgNode): void => setClip({ kind: 'aff', id: n.id, name: n.name })
+  const cutChars = (ids: number[]): void => {
+    if (!chart || !ids.length) return
+    setClip({ kind: 'chars', ids, names: chart.characters.filter((c) => ids.includes(c.id)).map((c) => c.name) })
+  }
+  const canPaste = (t: PasteTarget): boolean => {
+    if (!clip) return false
+    if (clip.kind === 'chars') return t.kind === 'unplaced' || t.id !== null
+    return t.kind === 'box' && (t.id === null || !subtree(clip.id).has(t.id))
+  }
+  const paste = (t: PasteTarget): void => {
+    if (!clip || !canPaste(t)) return
+    const c = clip
+    const to = t.kind === 'box' ? t.id : null
+    const done =
+      c.kind === 'aff' ? `"${c.name}"을(를) ${nameOf(to)} 하위 소속으로 이동` : to === null ? '소속 지정 해제' : `${nameOf(to)}에 ${c.ids.length}명 지정`
+    void act(() => (c.kind === 'aff' ? window.api.moveAffiliation(c.id, to) : window.api.placeCharacters(c.ids, to)), done).then((ok) => {
+      if (!ok) return
+      setClip(null)
+      if (c.kind === 'chars') setSel([])
+    })
+  }
+  const pasteItem = (t: PasteTarget, label: string): MenuItem[] =>
+    clip ? [{ label: `붙여넣기 · ${label}`, icon: <ContentPasteIcon />, disabled: !canPaste(t), onClick: () => paste(t), separator: true }] : []
+  const boxMenu = (e: React.MouseEvent, n: OrgNode): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: '하위 소속으로 이동…', icon: <SubdirectoryArrowRightIcon />, onClick: () => setMovePop({ id: n.id, x: e.clientX, y: e.clientY }) },
+        { label: '잘라내기', icon: <ContentCutIcon />, onClick: () => cutAff(n) },
+        ...pasteItem({ kind: 'box', id: n.id }, `${n.name} 하위로`),
+        { label: '하위 소속 추가', icon: <AddIcon />, onClick: () => setEditing({ mode: 'add', id: n.id }), separator: true },
+        { label: '이름 변경', icon: <EditIcon />, onClick: () => setEditing({ mode: 'rename', id: n.id }) },
+        {
+          label: '삭제 (하위 소속과 캐릭터는 한 단계 위로)',
+          icon: <DeleteIcon />,
+          onClick: () => void act(() => window.api.deleteAffiliation(n.id), `"${n.name}" 삭제`)
+        }
+      ]
+    })
+  }
+  const charMenu = (e: React.MouseEvent, c: OrgCharacter): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    const ids = sel.includes(c.id) ? sel : [c.id]
+    if (!sel.includes(c.id)) setSel([c.id])
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: ids.length > 1 ? `잘라내기 (${ids.length}명)` : '잘라내기', icon: <ContentCutIcon />, onClick: () => cutChars(ids) },
+        ...(c.affiliationId !== null ? pasteItem({ kind: 'box', id: c.affiliationId }, `${nameOf(c.affiliationId)}에`) : [])
+      ]
+    })
+  }
+  // Ctrl+X: the selected characters · Ctrl+V: onto the box under the pointer · Esc: forget the cut
+  useEffect(() => {
+    const key = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement
+      if (t.closest('input, textarea, [contenteditable="true"]')) return
+      if (e.key === 'Escape' && clip) setClip(null)
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      const k = e.key.toLowerCase()
+      if (k === 'x' && sel.length) {
+        e.preventDefault()
+        cutChars(sel)
+      } else if (k === 'v' && clip && hovered.current) {
+        e.preventDefault()
+        paste(hovered.current)
+      }
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  })
 
   // ---- drag & drop ----
   const startChars = (e: DragEvent, id: number): void => {
@@ -187,9 +319,27 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
         {tabs}
       </div>
       <p className="hint">
-        상자를 다른 상자 가운데로 끌면 그 아래 소속이 되고, 상자 위 · 아래 끝에 놓으면 순서가 바뀝니다. 캐릭터도 끌어서 옮깁니다 (Ctrl+클릭으로 여러
-        명). 정리 폴더는 게임/상위 소속/하위 소속/캐릭터 형태가 됩니다.
+        상자를 다른 상자 오른쪽 끝에 대면 그 하위 소속이 되고, 위 · 아래쪽에 대면 같은 단계에서 순서가 바뀝니다. 캐릭터도 끌어서 옮깁니다 (Ctrl+클릭으로
+        여러 명). 우클릭으로 잘라내기 · 붙여넣기 · 하위 소속으로 이동(이름으로 찾기)을 할 수 있습니다. 정리 폴더는 게임/상위 소속/하위 소속/캐릭터
+        형태가 됩니다.
       </p>
+      {clip && (
+        <div className="org-clip">
+          <ContentCutIcon />
+          <span>
+            잘라낸{' '}
+            {clip.kind === 'aff'
+              ? `소속 "${clip.name}"`
+              : clip.names.length > 1
+                ? `캐릭터 ${clip.names[0]} 외 ${clip.names.length - 1}명`
+                : `캐릭터 ${clip.names[0]}`}
+            <span className="dim"> · {arrowText('옮길 소속에서 우클릭 → 붙여넣기, 또는 마우스를 올리고 Ctrl+V · Esc 취소')}</span>
+          </span>
+          <button className="mini icon" title="잘라내기 취소" onClick={() => setClip(null)}>
+            <CloseIcon />
+          </button>
+        </div>
+      )}
 
       <div className="org-bar">
         <Select className="org-game" value={game} options={games.map((g) => [g.name, `${g.name} (${g.n}명)`] as const)} onChange={setGame} />
@@ -201,6 +351,16 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
           onBlur={() => chart && wiki.trim() !== (chart.wiki ?? '') && void act(() => window.api.setWiki(chart.series, wiki.trim() || null))}
         />
         <OrgSearch games={games} version={libraryVersion} onPick={jump} />
+        <div className="flat-group">
+          <button className="mini" disabled={!chart || running} title="소속을 정리해 둔 위키 문서 주소로 조직도 불러오기" onClick={() => setImporting('link')}>
+            <LinkIcon />
+            링크로 불러오기
+          </button>
+          <button className="mini" disabled={!chart || running} title="조직도 그림을 LLM으로 읽어 불러오기 (설정 → LLM)" onClick={() => setImporting('image')}>
+            <ImageIcon />
+            이미지로 불러오기
+          </button>
+        </div>
         <div className="flat-group">
           <button className="mini" disabled={!chart || !allowed || looking || running} onClick={() => lookup()}>
             <SearchIcon />
@@ -290,6 +450,13 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
       {chart && !found && (
         <div
           className="org-unplaced card"
+          onMouseEnter={() => (hovered.current = { kind: 'unplaced' })}
+          onMouseLeave={() => (hovered.current = null)}
+          onContextMenu={(e) => {
+            if (clip?.kind !== 'chars') return
+            e.preventDefault()
+            setMenu({ x: e.clientX, y: e.clientY, items: pasteItem({ kind: 'unplaced' }, '소속 미지정으로') })
+          }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             const d = readDrag(e)
@@ -307,6 +474,8 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
                 sel={sel}
                 setSel={setSel}
                 onDragStart={startChars}
+                cut={clip?.kind === 'chars' && clip.ids.includes(c.id)}
+                onMenu={charMenu}
                 onPick={(e) => {
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                   setAssign({ ids: sel.includes(c.id) && sel.length > 1 ? sel : [c.id], x: r.left, y: r.bottom + 4 })
@@ -339,16 +508,48 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
         />
       )}
 
+      {movePop && chart && (
+        <MovePop
+          at={movePop}
+          chart={chart}
+          name={nameOf(movePop.id)}
+          exclude={subtree(movePop.id)}
+          onClose={() => setMovePop(null)}
+          onPick={(to) => {
+            const id = movePop.id
+            setMovePop(null)
+            void act(() => window.api.moveAffiliation(id, to), `"${nameOf(id)}"을(를) ${nameOf(to)} 하위 소속으로 이동`)
+          }}
+        />
+      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {importing && chart && (
+        <OrgImport
+          mode={importing}
+          series={chart.series}
+          wiki={chart.wiki}
+          onClose={() => setImporting(null)}
+          onApply={(pv) =>
+            act(
+              () => window.api.orgImportApply(chart.series, pv.source, pv.tree, pv.translate),
+              `조직도 불러오기 · 새 소속 ${pv.created}개 · 옮긴 소속 ${pv.moved}개${pv.placed ? ` · 캐릭터 ${pv.placed}명 지정` : ''}${pv.renamed ? ` · 한글 이름 ${pv.renamed}개` : ''}`
+            )
+          }
+        />
+      )}
+
       {chart && !found && (
         <div className="org-scroll">
           <ul className="org-chart">
             <li>
-              <div
-                className="org-box root"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  const d = readDrag(e)
-                  if (d?.kind === 'aff') dropOn(d, null, 'inside')
+              <RootBox
+                series={chart.series}
+                onDropAff={(d) => dropOn(d, null, 'inside')}
+                onHover={(on) => (hovered.current = on ? { kind: 'box', id: null } : null)}
+                onMenu={(e) => {
+                  if (clip?.kind !== 'aff') return
+                  e.preventDefault()
+                  setMenu({ x: e.clientX, y: e.clientY, items: pasteItem({ kind: 'box', id: null }, `${chart.series} 하위로 (최상위)`) })
                 }}
               >
                 <div className="org-head">
@@ -359,7 +560,7 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
                     </button>
                   </span>
                 </div>
-              </div>
+              </RootBox>
               <Children
                 parent={null}
                 kids={kids}
@@ -372,6 +573,13 @@ export default function OrgView({ tabs }: { tabs: ReactNode }): JSX.Element {
                 dropOn={dropOn}
                 act={act}
                 series={chart.series}
+                nameOf={nameOf}
+                clip={clip}
+                canPaste={canPaste}
+                paste={paste}
+                boxMenu={boxMenu}
+                charMenu={charMenu}
+                hovered={hovered}
               />
             </li>
           </ul>
@@ -599,22 +807,27 @@ function CharChip({
   sel,
   setSel,
   onDragStart,
-  onPick
+  onPick,
+  onMenu,
+  cut
 }: {
   c: OrgCharacter
   sel: number[]
   setSel: (f: (s: number[]) => number[]) => void
   onDragStart: (e: DragEvent, id: number) => void
   onPick?: (e: React.MouseEvent) => void // plain click (소속 미지정: pick a 소속)
+  onMenu?: (e: React.MouseEvent, c: OrgCharacter) => void
+  cut?: boolean // cut, waiting to be pasted
 }): JSX.Element {
   const on = sel.includes(c.id)
   return (
     <span
-      className={`tag-chip org-char ${on ? 'confirmed' : ''}`}
+      className={`tag-chip org-char ${on ? 'confirmed' : ''} ${cut ? 'cut' : ''}`}
       data-char-id={c.id}
       draggable
-      title={`${c.images.toLocaleString()}장 · 끌어서 옮기기, Ctrl+클릭으로 여러 명 선택`}
+      title={`${c.images.toLocaleString()}장 · 끌어서 옮기기, Ctrl+클릭으로 여러 명 선택, 우클릭으로 잘라내기`}
       onDragStart={(e) => (e.stopPropagation(), onDragStart(e, c.id))}
+      onContextMenu={onMenu ? (e) => onMenu(e, c) : undefined}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey) setSel((s) => (s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]))
         else if (onPick) onPick(e)
@@ -637,6 +850,13 @@ interface TreeProps {
   dropOn: (d: Drag, target: OrgNode | null, where: Drop) => void
   act: (fn: () => Promise<unknown>, done?: string) => Promise<boolean>
   series: string
+  nameOf: (id: number | null) => string
+  clip: Clip | null
+  canPaste: (t: PasteTarget) => boolean
+  paste: (t: PasteTarget) => void
+  boxMenu: (e: React.MouseEvent, n: OrgNode) => void
+  charMenu: (e: React.MouseEvent, c: OrgCharacter) => void
+  hovered: React.RefObject<PasteTarget | null>
 }
 
 function Children(p: TreeProps & { parent: number | null }): JSX.Element | null {
@@ -671,29 +891,41 @@ function Children(p: TreeProps & { parent: number | null }): JSX.Element | null 
 
 function Box(p: TreeProps & { n: OrgNode }): JSX.Element {
   const { n } = p
-  const [hint, setHint] = useState<Drop | null>(null)
+  const [hint, setHint] = useState<Drop | 'chars' | null>(null)
   const chars = p.members.get(n.id) ?? []
   const renaming = p.editing?.mode === 'rename' && p.editing.id === n.id
   const where = (e: DragEvent): Drop => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    // siblings are stacked: top / bottom edge = before / after, middle = inside
-    const y = (e.clientY - r.top) / r.height
-    return y < 0.25 ? 'before' : y > 0.75 ? 'after' : 'inside'
+    // children sit to the right: the right edge = under this box; elsewhere
+    // the upper / lower half = before / after it (siblings are stacked)
+    if ((e.clientX - r.left) / r.width > 0.6) return 'inside'
+    return (e.clientY - r.top) / r.height < 0.5 ? 'before' : 'after'
   }
+  // What the drop will do, shown by the line (named after the new parent).
+  const label =
+    hint === 'inside' ? `${n.name} 하위 소속으로 이동` : hint === 'before' || hint === 'after' ? `${p.nameOf(n.parentId)} 하위 소속으로 이동` : undefined
+  const here: PasteTarget = { kind: 'box', id: n.id }
+  const cut = p.clip?.kind === 'aff' && p.clip.id === n.id
   return (
     <div
-      className={`org-box ${chars.length ? '' : 'no-chars'} ${hint ? `drop-${hint}` : ''}`}
+      className={`org-box ${chars.length ? '' : 'no-chars'} ${hint ? `drop-${hint}` : ''} ${cut ? 'cut' : ''}`}
       data-org-id={n.id}
+      data-drop-label={label}
       draggable={!renaming}
+      onContextMenu={(e) => p.boxMenu(e, n)}
+      onMouseEnter={() => (p.hovered.current = here)}
+      onMouseLeave={() => (p.hovered.current = null)}
       onDragStart={(e) => {
         e.dataTransfer.setData(MIME, JSON.stringify({ kind: 'aff', id: n.id } satisfies Drag))
+        e.dataTransfer.setData(AFF_MIME, '')
         e.dataTransfer.effectAllowed = 'move'
       }}
       onDragOver={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        // characters always go inside; boxes can also go before / after
-        setHint(e.dataTransfer.types.includes(MIME) ? where(e) : null)
+        // characters always go into the box; boxes go under it or next to it
+        if (!e.dataTransfer.types.includes(MIME)) return setHint(null)
+        setHint(e.dataTransfer.types.includes(AFF_MIME) ? where(e) : 'chars')
       }}
       onDragLeave={() => setHint(null)}
       onDrop={(e) => {
@@ -719,6 +951,15 @@ function Box(p: TreeProps & { n: OrgNode }): JSX.Element {
           </span>
         )}
         <span className="org-tools">
+          {p.clip && p.canPaste(here) && (
+            <button
+              className="mini icon paste"
+              title={`붙여넣기 · ${n.name}${p.clip.kind === 'aff' ? ' 하위로' : '에'} (Ctrl+V)`}
+              onClick={() => p.paste(here)}
+            >
+              <ContentPasteIcon />
+            </button>
+          )}
           <button className="mini icon" title="하위 소속 추가" onClick={() => p.setEditing({ mode: 'add', id: n.id })}>
             <AddIcon />
           </button>
@@ -737,11 +978,167 @@ function Box(p: TreeProps & { n: OrgNode }): JSX.Element {
       {chars.length > 0 && (
         <div className="chip-row">
           {chars.map((c) => (
-            <CharChip key={c.id} c={c} sel={p.sel} setSel={p.setSel} onDragStart={p.startChars} />
+            <CharChip
+              key={c.id}
+              c={c}
+              sel={p.sel}
+              setSel={p.setSel}
+              onDragStart={p.startChars}
+              onMenu={p.charMenu}
+              cut={p.clip?.kind === 'chars' && p.clip.ids.includes(c.id)}
+            />
           ))}
         </div>
       )}
     </div>
+  )
+}
+
+// The game's box: a box dropped on it goes to the top level.
+function RootBox({
+  series,
+  onDropAff,
+  onHover,
+  onMenu,
+  children
+}: {
+  series: string
+  onDropAff: (d: Drag) => void
+  onHover: (on: boolean) => void
+  onMenu: (e: React.MouseEvent) => void
+  children: ReactNode
+}): JSX.Element {
+  const [hint, setHint] = useState(false)
+  return (
+    <div
+      className={`org-box root ${hint ? 'drop-inside' : ''}`}
+      data-drop-label={hint ? `${series} 하위 소속으로 이동` : undefined}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      onContextMenu={onMenu}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setHint(e.dataTransfer.types.includes(AFF_MIME))
+      }}
+      onDragLeave={() => setHint(false)}
+      onDrop={(e) => {
+        setHint(false)
+        const d = readDrag(e)
+        if (d?.kind === 'aff') onDropAff(d)
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+// 하위 소속으로 이동…: find the new parent by name (or 최상위). The box itself
+// and what's under it aren't offered.
+function MovePop({
+  at,
+  chart,
+  name,
+  exclude,
+  onClose,
+  onPick
+}: {
+  at: { x: number; y: number }
+  chart: OrgChart
+  name: string
+  exclude: Set<number>
+  onClose: () => void
+  onPick: (parentId: number | null) => void
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState(0)
+  const [pos, setPos] = useState({ top: at.y, left: at.x })
+  useEffect(() => {
+    const down = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', down, true)
+    return () => document.removeEventListener('mousedown', down, true)
+  }, [onClose])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8)),
+      top: at.y + r.height > window.innerHeight - 8 ? Math.max(8, at.y - r.height) : at.y
+    })
+  }, [at])
+  // Same look as the bar's 소속 · 캐릭터 찾기: name on the left, where it sits
+  // (game › … › parent) on the right — no indenting, so nothing scrolls sideways.
+  const rows = useMemo(() => {
+    const kids = new Map<number | null, OrgNode[]>()
+    for (const n of chart.nodes) kids.set(n.parentId, [...(kids.get(n.parentId) ?? []), n])
+    for (const l of kids.values()) l.sort((a, b) => a.order - b.order || a.id - b.id)
+    const out: { id: number | null; name: string; aliases: string[]; path: string }[] = [
+      { id: null, name: chart.series, aliases: [], path: '최상위' }
+    ]
+    const walk = (p: number | null, path: string[]): void => {
+      for (const n of kids.get(p) ?? []) {
+        if (exclude.has(n.id)) continue
+        out.push({ id: n.id, name: n.name, aliases: n.aliases, path: path.join(' › ') })
+        walk(n.id, [...path, n.name])
+      }
+    }
+    walk(null, [chart.series])
+    return out
+  }, [chart, exclude])
+  const t = q.trim().toLowerCase()
+  const shown = t ? rows.filter((r) => [r.name, ...r.aliases].some((x) => x.toLowerCase().includes(t))) : rows
+  useEffect(() => setSel(0), [q])
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    listRef.current?.querySelectorAll('.picker-opt')[sel]?.scrollIntoView({ block: 'nearest' })
+  }, [sel])
+  return createPortal(
+    <div ref={ref} className="org-move-pop" style={pos}>
+      <div className="org-move-head">
+        <SubdirectoryArrowRightIcon />
+        <span>
+          <b>{name}</b>을(를) 어느 소속 하위로 옮길까요?
+        </span>
+      </div>
+      <div className="picker-box">
+        <SearchIcon />
+        <input
+          autoFocus
+          value={q}
+          placeholder="소속 이름으로 찾기"
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              setSel((i) => Math.min(shown.length - 1, i + 1))
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setSel((i) => Math.max(0, i - 1))
+            } else if (e.key === 'Enter' && shown[sel]) onPick(shown[sel].id)
+            else if (e.key === 'Escape') onClose()
+          }}
+        />
+      </div>
+      <div className="org-move-list" ref={listRef}>
+        {shown.map((r, i) => (
+          <button
+            key={r.id ?? 'top'}
+            className={`picker-opt ${i === sel ? 'sel' : ''}`}
+            onMouseEnter={() => setSel(i)}
+            onClick={() => onPick(r.id)}
+          >
+            <span className="picker-name">{r.name}</span>
+            <span className="picker-series">{r.path}</span>
+          </button>
+        ))}
+        {!shown.length && <div className="org-move-empty">찾는 소속이 없습니다</div>}
+      </div>
+    </div>,
+    document.body
   )
 }
 

@@ -43,7 +43,7 @@ const PIXAI_TAGS: ModelFile = {
 // Small; fetched alongside the main tagger.
 export const SERIES_MAP_SPEC: ModelSpec = {
   id: 'series',
-  label: '캐릭터 → 작품 대응표 (PixAI 태그 목록)',
+  label: '캐릭터별 작품 대응표 (PixAI 태그 목록)',
   license: 'Apache-2.0',
   files: [PIXAI_TAGS]
 }

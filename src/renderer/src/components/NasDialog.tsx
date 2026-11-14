@@ -59,11 +59,11 @@ export default function NasDialog({ onClose, onAdded }: { onClose: () => void; o
         </div>
         <div className="modal-foot">
           <span className={`row-desc nas-msg ${err ? 'nas-err' : ''}`}>{busy ? '연결하는 중…' : (err ?? '')}</span>
-          <button className="btn" onClick={onClose}>
-            취소
-          </button>
           <button className="btn primary" onClick={() => void connect()} disabled={busy || !address.trim()}>
             연결하고 추가
+          </button>
+          <button className="btn" onClick={onClose}>
+            취소
           </button>
         </div>
       </div>

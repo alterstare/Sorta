@@ -109,3 +109,27 @@ describe('unknown groups', () => {
     core.close()
   })
 })
+
+describe('직접 학습 (folder)', () => {
+  it("learns a character from a folder of the user's pictures; again adds only new ones", async () => {
+    const core = new SortaCore(join(dir, 'data'), {
+      taggerFactory: async () => new MockTagger({}),
+      learnFactory: async () => ({ embedder: new MockEmbedder(8, {}), detector: new MockDetector() })
+    })
+    const folder = join(dir, 'aoi')
+    mkdirSync(join(folder, 'sub'), { recursive: true })
+    await solid(join(folder, '1.png'), [200, 10, 10])
+    await solid(join(folder, 'sub', '2.png'), [190, 20, 10]) // subfolders count
+    await solid(join(folder, 'dup.png'), [200, 10, 10]) // same content as 1.png → one reference
+    const aoi = core.createCharacter('Aoi', 'Blue Archive')
+
+    expect(await core.runLearnFolder(folder, aoi).done).toMatchObject({ added: 2, known: 1, failed: 0, total: 2 })
+    expect(core.learned().map((c) => [c.name, c.refs, c.tag])).toEqual([['Aoi', 2, '']])
+
+    await solid(join(folder, '3.png'), [180, 30, 10])
+    expect(await core.runLearnFolder(folder, aoi).done).toMatchObject({ added: 1, known: 3, total: 3 })
+    // Pictures stay where they were; nothing is imported into the library.
+    expect(core.tree().counts.unknown ?? 0).toBe(0)
+    core.close()
+  })
+})

@@ -7,7 +7,8 @@ import { useStore } from '../store'
 import { useKept, useKeptScroll } from '../keep'
 import type { ClusterResult, Rating, UnknownCluster } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
-import { CheckIcon, KeyboardArrowLeftIcon, PersonOffIcon } from './icons'
+import { CheckIcon, FaceIcon, KeyboardArrowLeftIcon, LandscapeIcon } from './icons'
+import { arrowText } from '../arrowText'
 
 type Img = UnknownCluster['images'][number]
 
@@ -92,12 +93,16 @@ export default function UnknownView(): JSX.Element {
             <CharacterPicker
               newMode={creating}
               onNewModeChange={setCreating}
-              onPick={(c) => chosen.length && void apply(() => window.api.confirmCharacters(chosen, [c.id]), `${chosen.length}장 → ${c.name}`)}
+              onPick={(c) => chosen.length && void apply(() => window.api.confirmCharacters(chosen, [c.id]), `${chosen.length}장을 ${c.name}(으)로 지정`)}
             />
             <div className="flat-group">
-              <button className="mini" disabled={!chosen.length} onClick={() => void apply(() => window.api.markOther(chosen), `${chosen.length}장 캐릭터 아닌 그림으로 지정`)}>
-                <PersonOffIcon />
-                캐릭터 아닌 그림
+              <button className="mini" disabled={!chosen.length} title="이름 없는 오리지널 캐릭터" onClick={() => void apply(() => window.api.markOther(chosen, true), `${chosen.length}장 오리지널로 지정`)}>
+                <FaceIcon />
+                오리지널
+              </button>
+              <button className="mini" disabled={!chosen.length} title="풍경 등 인물이 없는 그림" onClick={() => void apply(() => window.api.markOther(chosen, false), `${chosen.length}장 기타로 지정`)}>
+                <LandscapeIcon />
+                기타
               </button>
             </div>
           </aside>
@@ -111,7 +116,7 @@ export default function UnknownView(): JSX.Element {
       <h1>미확인</h1>
       <p className="hint">어떤 모델도 캐릭터를 찾지 못한 그림을 서로 닮은 것끼리 묶었습니다. 묶음에 이름을 한 번 붙이면 전체에 적용되고, 학습에도 쓰입니다.</p>
       {!ccip?.installed && (
-        <div className="row-desc pad">묶으려면 설정 → 모델에서 캐릭터 학습 모델(CCIP)을 받으세요.</div>
+        <div className="row-desc pad">{arrowText('묶으려면 설정 → 모델에서 캐릭터 학습 모델(CCIP)을 받으세요.')}</div>
       )}
       {res && (
         <div className="row-desc pad">

@@ -30,10 +30,21 @@ export function deletedFolder(organizeDir: string): TrashFn {
   }
 }
 
-// The OS recycle bin, or 삭제됨 for network files / when `always`.
+// The OS recycle bin, or 삭제됨 for network files / when `always`. A mapped
+// network drive (Z: → a NAS share) looks local but has no recycle bin
+// either: when the OS can't take the file (it stays where it was), it goes
+// to 삭제됨 too.
 export function trashFor(organizeDir: string, osTrash: TrashFn, always = false): TrashFn {
   const folder = organizeDir ? deletedFolder(organizeDir) : null
-  return (p) => (folder && (always || isNetworkPath(p)) ? folder(p) : osTrash(p))
+  return async (p) => {
+    if (folder && (always || isNetworkPath(p))) return folder(p)
+    try {
+      await osTrash(p)
+    } catch (e) {
+      if (!folder || !existsSync(p)) throw e
+      await folder(p)
+    }
+  }
 }
 
 export async function trashImages(

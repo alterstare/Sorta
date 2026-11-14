@@ -155,7 +155,7 @@ export const useStore = create<State>((set, get) => ({
       const n = rows.filter((x) => x.on).length
       get().showToast({
         ok: true,
-        message: `위키 조회 완료: ${rows.length}명 중 ${n}명 소속 후보 · 캐릭터 → 소속 탭에서 확인하고 적용하세요`
+        message: `위키 조회 완료: ${rows.length}명 중 ${n}명 소속 후보 · 소속 탭에서 확인하고 적용하세요`
       })
     } catch (e) {
       set({ orgLookup: null })

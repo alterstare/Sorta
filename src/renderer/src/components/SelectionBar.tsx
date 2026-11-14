@@ -4,7 +4,7 @@ import type { JSX } from 'react'
 import { useStore } from '../store'
 import type { Rating } from '../../../shared/types'
 import CharacterPicker from './CharacterPicker'
-import { CloseIcon, DeleteIcon, GroupsIcon, PersonOffIcon } from './icons'
+import { CloseIcon, DeleteIcon, FaceIcon, GroupsIcon, LandscapeIcon } from './icons'
 import { RATING_LABEL } from './ThumbGrid'
 
 const RATINGS: Exclude<Rating, 'unknown'>[] = ['general', 'sensitive', 'r18']
@@ -41,9 +41,13 @@ export default function SelectionBar({ allIds }: { allIds: number[] }): JSX.Elem
           <GroupsIcon />
           단체 사진
         </button>
-        <button className="mini" onClick={() => void window.api.markOther(ids).then(() => done('캐릭터 아닌 그림으로 지정'))}>
-          <PersonOffIcon />
-          캐릭터 아닌 그림
+        <button className="mini" title="이름 없는 오리지널 캐릭터" onClick={() => void window.api.markOther(ids, true).then(() => done('오리지널로 지정'))}>
+          <FaceIcon />
+          오리지널
+        </button>
+        <button className="mini" title="풍경 등 인물이 없는 그림" onClick={() => void window.api.markOther(ids, false).then(() => done('기타로 지정'))}>
+          <LandscapeIcon />
+          기타
         </button>
         <button className="mini danger" onClick={() => useStore.getState().setTrashDialog(ids)}>
           <DeleteIcon />

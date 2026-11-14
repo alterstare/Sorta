@@ -6,7 +6,7 @@ import sharp from 'sharp'
 import { SortaCore } from '../src/core'
 import { MockTagger } from '../src/core/ml/mock'
 import type { TagResult } from '../src/core/ml/types'
-import { safeName } from '../src/core/organize'
+import { safeName, targetDir } from '../src/core/organize'
 
 let dir: string
 let src: string
@@ -197,12 +197,14 @@ describe('중복 정리', () => {
     put('var.png', 'ffffffff00000001', 1000) // hash-close to big, but a 차분
     expect(core.tree().dups).toBeNull() // not checked yet
     let g = await core.duplicates()
+    // most alike first: pair (1 bit apart) before big / small (2 bits)
     expect(g.map((x) => x.images.map((i) => i.name))).toEqual([
-      ['big.png', 'small.png'],
-      ['pair1.png', 'pair2.png']
+      ['pair1.png', 'pair2.png'],
+      ['big.png', 'small.png']
     ])
+    expect(g[1].images[1]).toMatchObject({ similarity: 94, near: true })
     expect(core.tree().dups).toBe(4)
-    const smallId = g[0].images[1].id
+    const smallId = g[1].images[1].id
     expect(await core.runSetAside([smallId]).done).toEqual({ moved: 1, failed: [] })
     expect(existsSync(small)).toBe(false)
     expect(existsSync(join(out, '중복', 'small.png'))).toBe(true)
@@ -218,5 +220,34 @@ describe('중복 정리', () => {
     expect(existsSync(small)).toBe(true)
     expect(await core.duplicates()).toHaveLength(2)
     core.close()
+  })
+})
+
+describe('중복 정리: same file name', () => {
+  it('does not group same-name pictures that do not look alike', async () => {
+    const core = new SortaCore(join(dir, 'data'), { grayLoader: async () => new Uint8Array(64 * 64).fill(100) })
+    const ins = core.db.prepare('INSERT INTO images (path, sha256, phash, width, height, file_size, imported_at) VALUES (?, ?, ?, ?, ?, ?, 1)')
+    const put = (name: string, phash: string, w: number): void => {
+      writeFileSync(join(src, name), name)
+      ins.run(join(src, name), name, phash, w, w, 10)
+    }
+    put('다운로드.jpeg', 'ffffffff00000000', 1000)
+    put('다운로드 (1).jpeg', '00000000ffffffff', 800) // a different picture, same name
+    put('copy1.png', '0f0f0f0f0f0f0f0f', 300)
+    put('copy2.png', '0f0f0f0f0f0f0f0e', 300)
+    const g = await core.duplicates()
+    expect(g.map((x) => x.images.map((i) => i.name))).toEqual([
+      ['copy1.png', 'copy2.png']
+    ])
+    core.close()
+  })
+})
+
+describe('오리지널 / 기타 folders', () => {
+  it('splits pictures with no named character', () => {
+    const s = { splitByRating: true, moveAuto: true, thresholds: { groupThreshold: 4 } } as Parameters<typeof targetDir>[2]
+    const at = (original: number): string | null => targetDir({ kind: 'other', rating: 'general', original, rows: [] }, new Map(), s)
+    expect(at(1)?.replace(/\\/g, '/')).toBe('일반/오리지널')
+    expect(at(0)?.replace(/\\/g, '/')).toBe('일반/기타')
   })
 })

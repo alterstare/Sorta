@@ -2,6 +2,7 @@
 // grouped so the user keeps one and sets the others aside. "Setting aside"
 // moves the original into <정리 폴더>/중복 (never deletes) and hides it from
 // the library; Ctrl+Z moves it back. "중복 아님" remembers a group as distinct.
+// Each picture shows how alike it is to the best one (닮음 %).
 import { existsSync } from 'fs'
 import { basename, join } from 'path'
 import type { Db } from './db'
@@ -19,6 +20,9 @@ const pop = (x: number): number => {
   return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24
 }
 const halves = (h: string): [number, number] => [parseInt(h.slice(0, 8), 16) >>> 0, parseInt(h.slice(8, 16), 16) >>> 0]
+const dist = (a: [number, number], b: [number, number]): number => pop(a[0] ^ b[0]) + pop(a[1] ^ b[1])
+// 닮음 %: 0 bits apart = 100, 32 (unrelated pictures) or more = 0
+const similarity = (d: number): number => Math.max(0, Math.round(100 * (1 - d / 32)))
 
 // 64×64 grayscale of an image's thumbnail (or the original) for the detail
 // check; null when it can't be read.
@@ -66,9 +70,8 @@ export async function duplicateGroups(db: Db, maxDistance: number, maxDetail: nu
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])))
   const gray = (i: number): Promise<Uint8Array | null> => load(rows[i].id, rows[i].thumb ?? rows[i].path)
   for (let a = 0; a < rows.length; a++) {
-    const [a0, a1] = hs[a]
     for (let b = a + 1; b < rows.length; b++) {
-      if (pop(a0 ^ hs[b][0]) + pop(a1 ^ hs[b][1]) > maxDistance) continue
+      if (dist(hs[a], hs[b]) > maxDistance) continue
       if (ignore.has(`${rows[a].id}:${rows[b].id}`)) continue
       const [ga, gb] = await Promise.all([gray(a), gray(b)])
       if (ga && gb && maxAreaDiff(ga, gb) > maxDetail) continue // 차분, not a copy
@@ -78,15 +81,26 @@ export async function duplicateGroups(db: Db, maxDistance: number, maxDetail: nu
   const byRoot = new Map<number, number[]>()
   rows.forEach((_, i) => byRoot.set(find(i), [...(byRoot.get(find(i)) ?? []), i]))
   const names = db.prepare(
-    `SELECT DISTINCT c.name FROM image_characters ic JOIN characters c ON c.id = ic.character_id
+    `SELECT DISTINCT COALESCE(c.display_name, c.name) AS name FROM image_characters ic JOIN characters c ON c.id = ic.character_id
      WHERE ic.image_id = ? AND ic.status IN ('auto','confirmed')`
   )
   const groups: DupGroup[] = []
   for (const members of byRoot.values()) {
     if (members.length < 2) continue
-    const images = members
-      .map((i) => rows[i])
-      .map((r) => ({
+    const sorted = members.sort(
+      (x, y) =>
+        (rows[y].width ?? 0) * (rows[y].height ?? 0) - (rows[x].width ?? 0) * (rows[x].height ?? 0) || (rows[y].size ?? 0) - (rows[x].size ?? 0)
+    )
+    // a copy of the best one: close hash and no area that differs (차분)
+    const copy = async (i: number): Promise<boolean> => {
+      if (dist(hs[i], hs[sorted[0]]) > maxDistance) return false
+      const [ga, gb] = await Promise.all([gray(i), gray(sorted[0])])
+      return !(ga && gb && maxAreaDiff(ga, gb) > maxDetail)
+    }
+    const near = await Promise.all(sorted.map(copy))
+    const images = sorted
+      .map((i, k) => ({ r: rows[i], d: dist(hs[i], hs[sorted[0]]), near: near[k] }))
+      .map(({ r, d, near }) => ({
         id: r.id,
         path: r.path,
         name: basename(r.path),
@@ -95,13 +109,16 @@ export async function duplicateGroups(db: Db, maxDistance: number, maxDetail: nu
         height: r.height,
         size: r.size,
         rating: r.rating,
-        characters: (names.all(r.id) as { name: string }[]).map((x) => x.name)
+        characters: (names.all(r.id) as { name: string }[]).map((x) => x.name),
+        similarity: similarity(d),
+        near
       }))
-      // Best first (the suggested one to keep): more pixels, then bigger file.
-      .sort((x, y) => (y.width ?? 0) * (y.height ?? 0) - (x.width ?? 0) * (x.height ?? 0) || (y.size ?? 0) - (x.size ?? 0))
+    // Best first (the suggested one to keep): more pixels, then bigger file.
     groups.push({ key: images.map((i) => i.id).join(','), images })
   }
-  return groups.sort((a, b) => b.images.length - a.images.length || a.images[0].id - b.images[0].id)
+  // Most alike first.
+  const least = (g: DupGroup): number => Math.min(...g.images.slice(1).map((i) => i.similarity))
+  return groups.sort((a, b) => least(b) - least(a) || b.images.length - a.images.length || a.images[0].id - b.images[0].id)
 }
 
 interface DupPayload {

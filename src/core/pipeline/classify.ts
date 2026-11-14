@@ -93,7 +93,7 @@ function ensureCharacterRow(db: Db, tag: string, map?: Map<string, string>): num
   const s = seriesOf(tag, map)
   const sid = ensureSeries(db, s.name, s.tag)
   // Same display name already in this series (e.g. created by hand) → link the tag to it.
-  const same = db.prepare('SELECT id, aliases FROM characters WHERE series_id = ? AND name = ?').get(sid, p.name) as
+  const same = db.prepare('SELECT id, aliases FROM characters WHERE series_id = ? AND (name = ? OR display_name = ?) ORDER BY name = ? DESC LIMIT 1').get(sid, p.name, p.name, p.name) as
     | { id: number; aliases: string }
     | undefined
   if (same) {
@@ -191,7 +191,49 @@ async function runAssist(st: StoredTags, img: () => Promise<RgbImage>, models: M
   if (!want.length) return false
   const rgb = await img()
   for (const m of want) st[m.id] = await m.characters(rgb)
+  trimCamie(st)
   return true
+}
+
+// Camie scores thousands of its 26k characters at 0.1–0.4 on every picture
+// (~1.4 MB of tag_json each, which also went into the library file). Below
+// camieSoloMin's floor a Camie score only matters for a tag another model
+// names too, so only those are kept.
+export const CAMIE_KEEP_MIN = 0.25
+export function trimCamie(st: StoredTags): boolean {
+  if (!st.camie) return false
+  const seen = new Set<string>()
+  for (const c of [...st.characters, ...(st.pixai ?? []), ...(st.knn ?? [])]) seen.add(variantBase(c.tag) ?? c.tag)
+  const keep = st.camie.filter((c) => c.score >= CAMIE_KEEP_MIN || seen.has(variantBase(c.tag) ?? c.tag))
+  if (keep.length === st.camie.length) return false
+  st.camie = keep
+  return true
+}
+
+// Stored results from before trimCamie, in small batches so the app stays
+// responsive (once per data folder).
+export async function trimStoredCamie(db: Db, ctx: JobContext): Promise<number> {
+  const ids = (db.prepare(`SELECT id FROM images WHERE tag_json LIKE '%"camie":%' ORDER BY id`).all() as { id: number }[]).map((r) => r.id)
+  const get = db.prepare('SELECT tag_json FROM images WHERE id = ?')
+  const set = db.prepare('UPDATE images SET tag_json = ? WHERE id = ?')
+  let n = 0
+  for (let i = 0; i < ids.length; i += 20) {
+    if (ctx.signal.aborted) return n
+    ctx.report(i, ids.length, '태그 점수 정리 중')
+    db.transaction(() => {
+      for (const id of ids.slice(i, i + 20)) {
+        const row = get.get(id) as { tag_json: string | null } | undefined
+        if (!row?.tag_json) continue
+        const st = JSON.parse(row.tag_json) as StoredTags
+        if (trimCamie(st)) {
+          set.run(JSON.stringify(st), id)
+          n++
+        }
+      }
+    })()
+    await new Promise((r) => setImmediate(r))
+  }
+  return n
 }
 
 const openAfterMain = (st: StoredTags, o: DecideOptions): boolean => needsAssist(decideEnsemble({ wd: st.characters }, o.t, o.ignored))

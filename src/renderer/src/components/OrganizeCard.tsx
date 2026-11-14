@@ -106,12 +106,12 @@ export default function OrganizeCard(): JSX.Element | null {
               {plan.moves.length === 0 && <div className="row-desc pad">옮길 그림이 없습니다.</div>}
             </div>
             <div className="modal-foot">
-              <button className="btn" onClick={() => setPlan(null)}>
-                취소
-              </button>
               <button className="btn primary" disabled={!plan.moves.length || running} onClick={() => void run()}>
                 <DriveFileMoveIcon />
                 {plan.moves.length.toLocaleString()}장 옮기기
+              </button>
+              <button className="btn" onClick={() => setPlan(null)}>
+                취소
               </button>
             </div>
           </div>

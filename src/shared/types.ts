@@ -2,7 +2,7 @@
 
 export type Rating = 'general' | 'sensitive' | 'r18' | 'unknown'
 export type MatchStatus = 'auto' | 'confirmed' | 'pending' | 'unknown'
-export type ImageKind = 'character' | 'other' | 'unknown' | 'group' // group: 단체 사진으로만 분류 (shown; stored as group_only)
+export type ImageKind = 'character' | 'original' | 'other' | 'unknown' | 'group' // group: 단체 사진으로만 분류 (shown; stored as group_only)
 export type SafeMode = 'show' | 'blur' | 'hide'
 export type AssistMode = 'none' | 'pixai' | 'pixai+camie'
 export type ModelId = 'wd' | 'pixai' | 'camie' | 'series' | 'ccip'
@@ -49,10 +49,20 @@ export interface Settings {
   assistMode: AssistMode
   learnPerCharacter: number // Safebooru pictures fetched per learned character
   learnMinPosts: number // skip characters with fewer pictures than this
-  booruSource: 'danbooru' | 'safebooru' // where reference pictures come from
-  learnSensitive: boolean // Danbooru: also use rating:sensitive pictures (swimsuits etc.)
+  booruSource: 'danbooru' | 'gelbooru' | 'safebooru' // where reference pictures come from
+  learnSensitive: boolean // Danbooru / Gelbooru: also use rating:sensitive pictures (swimsuits etc.)
+  // Gelbooru's API needs an account's key (계정 설정 › API Access Credentials).
+  // Without one Gelbooru is skipped. Kept in sorta.db only, never in the library files.
+  gelbooruUserId: string
+  gelbooruApiKey: string
   useGpu: boolean
   allowWebLookup: boolean // wiki / LLM lookups by character name (opt-in)
+  // LLM for reading an org chart picture (조직도 불러오기 › 이미지): Gemini or
+  // any OpenAI-compatible vision API. One key per provider, kept in sorta.db only.
+  llmProvider: LlmProvider
+  llmKeys: Partial<Record<LlmProvider, string>>
+  llmModel: string
+  llmBaseUrl: string // OpenAI-compatible endpoint (filled from the preset; edited for ollama / custom)
   allowImageSearch: boolean // 구글 렌즈: the one place a picture leaves the PC, only on the user's click (opt-in)
   autoUpdate: boolean
   theme: 'light' | 'dark'
@@ -65,15 +75,20 @@ export interface Settings {
   libSort: SortKey
   libDir: SortDir
   libLayout: 'grid' | 'list'
+  treeSort: 'name' | 'count' // left tree: games / characters by name or image count
   thumbSize: 's' | 'm' | 'l'
 }
 
 export interface ProgressEvent {
   jobId: number
+  name?: string // the job as queued (label can change while it runs)
   label: string
   done: number
   total: number // 0 = indeterminate
   unit?: 'bytes' // done/total are bytes (shown as MB)
+  // The current step inside done/total (e.g. 그림 받기 12 / 30 for one character)
+  detail?: string
+  step?: { done: number; total: number }
   state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
   error?: string
   background?: boolean // never blocks other actions; yields to any other job
@@ -101,7 +116,8 @@ export type LibraryNode =
   | { type: 'pending' } // has a character awaiting review
   | { type: 'ratingReview' } // rating fell in a borderline band
   | { type: 'unknown' } // classified, no character found
-  | { type: 'other' } // marked "캐릭터 아닌 그림"
+  | { type: 'original' } // marked "오리지널" (original character)
+  | { type: 'other' } // marked "기타" (scenery, no people)
   | { type: 'groupShot'; id?: number } // 단체 사진으로만 분류 (id: of one game)
   | { type: 'unclassified' } // imported, tagger not run yet
 
@@ -153,6 +169,7 @@ export type TreeCounts = {
   pending: number
   ratingReview: number
   unknown: number
+  original: number
   other: number
   groupShot: number
   unclassified: number
@@ -179,6 +196,8 @@ export interface DupGroup {
     size: number | null
     rating: Rating
     characters: string[]
+    similarity: number // 닮음 % to the first (best) one
+    near: boolean // a copy of the first one itself (not only through another member)
   }[] // best first (suggested to keep)
 }
 
@@ -302,12 +321,14 @@ export interface OrganizePlan {
 
 export interface ManagedCharacter {
   id: number
-  name: string
+  name: string // shown (표시 이름, else the system name)
+  systemName: string // tag matching, wiki / LLM lookups
   aliases: string[]
   tag: string | null
   parentId: number | null // outfit version of
   seriesId: number
-  series: string
+  series: string // shown
+  seriesSystemName: string
   affiliation: string | null
   images: number
   refs: number // learning references
@@ -328,19 +349,77 @@ export interface ClusterResult {
 // 소속 조직도 (Phase 4): nested affiliations of one game.
 export interface OrgNode {
   id: number
-  name: string
+  name: string // shown
+  systemName: string
   aliases: string[] // earlier names (wiki answers in the old spelling still match)
   parentId: number | null
   order: number
 }
 export interface OrgCharacter {
   id: number
-  name: string
+  name: string // shown
+  systemName: string
   affiliationId: number | null
   images: number
 }
+export type LlmProvider = 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'ollama' | 'custom'
+// Provider defaults (same as Halftone's), filled in when a provider is picked.
+export const LLM_PRESETS: Record<LlmProvider, { llmBaseUrl: string; llmModel: string } | null> = {
+  gemini: { llmBaseUrl: '', llmModel: 'gemini-2.5-flash' },
+  groq: { llmBaseUrl: 'https://api.groq.com/openai/v1', llmModel: 'qwen/qwen3.8-27b' },
+  openrouter: { llmBaseUrl: 'https://openrouter.ai/api/v1', llmModel: 'google/gemma-4-31b-it:free' },
+  mistral: { llmBaseUrl: 'https://api.mistral.ai/v1', llmModel: 'mistral-large-latest' },
+  ollama: { llmBaseUrl: 'http://localhost:11434/v1', llmModel: 'gemma3:12b' },
+  custom: null
+}
+
+// 조직도 불러오기: a tree read from a wiki page (link) or a picture (LLM).
+export interface OrgImportNode {
+  name: string
+  aliases: string[] // other names of the same group (A/B on a wiki page)
+  match?: string // the existing affiliation it is (picture read with 한글 번역: name = the Korean one)
+  characters: { name: string; match?: string }[] // characters in it (pictures only)
+  children: OrgImportNode[]
+}
+// What applying it would do, one row per node (tree order).
+export interface OrgImportRow {
+  depth: number
+  name: string
+  status: 'new' | 'moved' | 'same'
+  from?: string // moved: where it was (parent name, or 최상위)
+  renamed?: string // 한글 번역: its name before
+  aliases: string[] // names added as aliases
+  characters: { name: string; found: boolean; renamed?: string }[]
+}
+export interface OrgImportPreview {
+  source: string // page title / file name
+  tree: OrgImportNode[]
+  rows: OrgImportRow[]
+  created: number
+  moved: number
+  placed: number // characters placed
+  renamed: number // names changed to the picture's (한글 번역)
+  unknown: string[] // character names with no match in the game
+  translate: boolean // picture read with 소속 및 학생 이름 한글로 번역
+}
+
+// 한글 이름: renames proposed from a game's data site or a roster picture.
+export interface NameChange {
+  kind: 'character' | 'affiliation' | 'series'
+  id: number
+  from: string
+  to: string
+  series?: string // its game, when a plan spans several
+}
+export interface NamePlan {
+  source: string
+  changes: NameChange[]
+  unmatched: number // names of mine the source had nothing for
+}
+
 export interface OrgChart {
-  series: string
+  series: string // shown
+  seriesSystemName: string
   wiki: string | null // Fandom domain, e.g. bluearchive.fandom.com
   nodes: OrgNode[]
   characters: OrgCharacter[] // base characters (outfit versions follow them)
